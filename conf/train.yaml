@@ -1,0 +1,62 @@
+seed_everything:
+  seed: 42
+  workers: True
+  verbose: False
+
+project_dir: /home/ehre/Documents/footballProject
+save_dir: /home/ehre/Documents/footballProject/logs
+
+features_of_interest:
+  loading: ['nfl_id', 'frame_id']
+  model:
+    norm:  ['absolute_yardline_number','player_height','player_weight','x','y','s','a','dir','o']
+    no_norm: ['player_to_predict','play_direction','player_position','player_side']
+    
+data:
+  dataset: 
+    data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train
+    min_max_path: ${project_dir}/conf/updated_min_max_values.yaml    
+    pos_path: ${project_dir}/data/positions/positions.txt  
+  dataloading: 
+    lengths: [0.8, 0.2]
+    batch_size: 2
+    shuffle: True
+    num_workers: 4
+    persistent_workers: True
+
+model: 
+  transformer: 
+    d_model: 10
+    nhead: 5
+    dim_feedforward: 64
+    batch_first: True
+  i: 
+    input_dim: 13 
+    hidden_dim: 10 
+    output_dim: 10 
+  o: 
+    input_dim: 2 
+    hidden_dim: 10 
+    output_dim: 10
+
+logger: 
+  name: WandbLogger
+  save_dir: ${save_dir}/logger
+  version: '1'
+  project: GetRichOrDieTrying
+  log_model: all 
+  checkpoint_name: checkpoint_logger
+
+modelCheckpoint: 
+  dirpath: ${save_dir}/checkpoint_model 
+  filename: WhatAModelTheBestModelEverybodySaysThat
+  monitor: val_loss
+  save_top_k: 1 
+  mode: min
+
+profiler: 
+  dirpath: ${save_dir}/profiler
+
+trainer:  
+  max_epochs: 100
+  log_every_n_steps: 5
