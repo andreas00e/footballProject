@@ -1,5 +1,4 @@
-# 🏈 NFL Big Data Bowl 2026 — Prediction
-https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction
+# 🏈 NFL Big Data Bowl 2026 — Prediction 
 Participants are asked to predict player movements during the ball-in-air phase. The NFL provides tracking data up to the moment the quarterback releases the ball, 
 including Next Gen Stats data. Additionally, participants are given the targeted offensive player and the pass’s landing location.
 
