@@ -17,3 +17,40 @@ Transformer-based sequence models
 Dynamic graph neural networks to capture player-to-player interactions
 
 Hybrid fusion architectures combining sequence + graph reasoning
+
+🎯 Problem Description
+
+Before the snap, we observe:
+
+Player positions (x, y)
+
+Player velocities and speeds
+
+Orientation, acceleration, roles, and team alignment
+
+Frame-by-frame movement at ~10 Hz
+
+We must use only pre-snap motion to forecast in-air movement once the QB throws the ball.
+
+This is a structured spatiotemporal forecasting problem with relational dependencies (teammates, opponents, formations).
+
+🧠 Modeling Approach
+1. 2D Positional Encoding for Each Frame
+
+To help the model understand field geometry, each frame receives:
+
+A sinusoidal positional encoding on the continuous (x, y) field coordinates
+
+Encodings concatenated to player states before being passed into the model
+
+This helps the network learn:
+
+spatial patterns (formations, spacing)
+
+standard NFL field layout
+
+differences between tight/loose formations, hash marks, etc.
+
+2. Frame-Level Embeddings → Temporal Transformer
+
+Each frame is embedded into a unified vector, then passed into a transformer encoder:
