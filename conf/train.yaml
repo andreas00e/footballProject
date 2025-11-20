@@ -13,7 +13,7 @@ feature_config:
     no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
     
 data:
-  type: graph # sequential  
+  data_type: 'graph'
   dataset: 
     data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train
     # data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_inv # path to invariant data
@@ -40,6 +40,8 @@ model:
     input_dim: 2 
     hidden_dim: 10 
     output_dim: 10
+
+  graph: None
 
 logger: 
   name: WandbLogger

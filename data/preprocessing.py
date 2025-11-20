@@ -1,61 +1,80 @@
 import os 
 import math 
-import hydra
+from tqdm import tqdm
 import argparse
-import numpy as np 
 import pandas as pd
-from typing import List, Literal, Type
 from pathlib import Path
 import multiprocessing as mp 
 from functools import partial
+from typing import List, Literal
 from omegaconf import OmegaConf as oc
 
 
-FLIP_FEATURES = ['absolute_yardline_number', 'x', 'y', 'o', 'dir']
-
-def pos_to_num(file_path: Path):
+def pos_to_num(file_path: Path) -> dict[str: float]: 
+    """ 
+    Transform position labels into numeric form for network processing
+    
+    Returns:
+        dict[str: float]: Dictionary the keys being the players and the values being the numeric position encodings
+    """
     with open(file_path) as f: 
         pos_lit = [pos.replace(' ', '') for pos in f.read().split('\n')]
         pos_num = list(map(lambda x: math.sin(math.sqrt(int.from_bytes(x.encode('utf-8'), 'big'))), pos_lit))
+        
         return dict(zip(pos_lit, pos_num))
 
 def get_min_max(file: Path, features: List[str]): # min_max_conf is a DictConfig...
     data = pd.read_csv(file)
     data['player_height'] = data['player_height'].apply(lambda x: (int(x.split('-')[0])*12.0+int(x.split('-')[1]))*2.54)
     min_max_dict = dict(zip(features, zip(data[features].min(), data[features].max())))
+    
     return min_max_dict
 
-type axis = Literal['⇅', '⇄', 'both']
-def transform(files: List[Path], flip: axis) -> None: 
-    for file in files: 
+def transform(files: List[Path], flip: str ='both') -> None: 
+    p_bar = tqdm(files, colour='green')
+    for file in p_bar: 
+        p_bar.set_description("Processing: {}".format(os.path.basename(file)))
         data = pd.read_csv(file)
         file_path, file_name = os.path.split(file)
-        file_path_inv = file_path+'_inv'
-        file_name_inv = '_'.join(file_name.split('.')[0], 'inv.csv')
+        parent_path = os.path.dirname(file_path)
         
+        if not 'train_inv' in os.listdir(parent_path):  # check if folder containing invariant csv files already exists
+            os.mkdir(os.path.join(parent_path, 'train_inv')) # create folder for holding invariant data
+            
+        file_path_inv = os.path.join(parent_path, 'train_inv')
+        file_name_inv = file_name.split('.')[0]+'_inv.csv' # file name for csv file containing holding plays   
+        file_inv = os.path.join(file_path_inv, file_name_inv)
+              
         data_inv = {}   
-        match flip: 
-            case '⇅': # flip along x-axis 
-                data['x_⇅'] = 120.0 - data['x'] 
-                data[['o_⇅', 'dir_⇅']] = 180.0 - data[['o', 'dir']] 
-            case '⇄': # flip along y-axis
-                data['y_⇄'] = 53.3 - data['y'] 
-                data[['o_⇄', 'dir_⇄']] = 360.0 - data[['o', 'dir']] 
-            case 'both': # flip along both x-axis and y-axis
+        data_inv['game_id'] = data['game_id']
+        data_inv['play_id'] = data['play_id']
+        data_inv['nfl_id'] = data['nfl_id']
+        match flip: # TODO: Make match case statement less redundant
+            case '⇅': # flip along x-axis ( → ), change of player positioning 
+                data_inv['x_⇅'] = list(120.0 - data['x'])
+                if 'input' in file: 
+                    data_inv['o_⇅'] = list(180.0 - data['o'])
+                    data_inv['dir_⇅'] = list(180.0 - data['dir'])
+
+            case '⇄': # flip along y-axis ( ↑ ), change of play direction 
+                data_inv['y_⇄'] = list(53.3 - data['y'])
+                if 'input' in file: 
+                    data_inv['o_⇄'] = list(360.0 - data['o'])
+                    data_inv['dir_⇄'] = list(360.0 - data['dir'])
+                    data_inv['play_direction_⇄'] = list(1.0 - data['play_direction'].apply(lambda x: 0.0 if x == 'left' else 1.0))
+                
+            case 'both': # flip along both x-axis ( → ) and y-axis ( ↑ ), change of both player positioning and play direction 
                 data_inv['x_inv'] = list(120.0 - data['x'])
                 data_inv['y_inv'] = list(53.3 - data['y'])
-                data_inv = {}   
                 if 'input' in file: 
-                    data_inv['o_inv'] = list((data['o']+180.0)%360.0)
-                    data_inv['dir_inv'] = list((data['dir']+180.0)%360.0)
-                    data_inv['player_direction_inv'] = list(int(not data['player_direction']))
-                    data_inv['playe_side_inv'] = list(int(not data['player_side_direction']))
+                    data_inv['o_inv'] = list((data['o'] + 180.0) % 360.0)
+                    data_inv['dir_inv'] = list((data['dir']+180.0) % 360.0)
+                    data_inv['play_direction_inv'] = list(1.0 - data['play_direction'].apply(lambda x: 0.0 if x == 'left' else 1.0))
                     
-        data_inv = pd.DataFrame(data=data_inv)
-        data_inv = data_inv.to_csv(file_name='file.csv', file_path=data_inv_path) # TODO: Make sure file contains 'input'/'output' and week 
-                
+        data_inv = pd.DataFrame.from_dict(data=data_inv)
+        data_inv = data_inv.to_csv(file_inv, index=False)
         
-
+        
 def main(): 
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_path', default='conf/train.yaml', help='Provide the path to the configuartion file needed for training.')
@@ -70,11 +89,13 @@ def main():
     
     # output files don't contain any variables we don't already know the min and max values of
     data_path = train_conf['data']['dataset']['data_path']
-    files = [os.path.join(data_path, file) for file in os.listdir(data_path) if file.endswith('.csv') and 'input' in file]
+    # files = [os.path.join(data_path, file) for file in os.listdir(data_path) if file.endswith('.csv') and 'input' in file]
+    files = [os.path.join(data_path, file) for file in os.listdir(data_path) if file.endswith('.csv')]
     features = train_conf['features_of_interest']['model']['norm']
     
-    transform(files=files, flip='horizontal')
-    
+    transform(files=files)
+    exit()
+        
     #TODO: Add functionality that enables to not open the file if it already exists
     with mp.Pool(processes=mp.cpu_count()) as pool: 
         func = partial(get_min_max, features=features)
@@ -111,19 +132,6 @@ def main():
         with open(pos_path, 'x') as f: 
             f.write(s)
     
-    # Old implementation from 04.11.25
-    # for feature in features: 
-    #     for result in results: 
-    #         if isinstance(min_max_conf[feature]['min'], type(None)): 
-    #             min_max_conf[feature]['min'] = math.inf
-    #         if isinstance(min_max_conf[feature]['max'], type(None)): 
-    #             min_max_conf[feature]['max'] = -math.inf
-    #         if result[feature][0] < min_max_conf[feature]['min']: 
-    #             min_max_conf[feature]['min'] = result[feature][0]
-    #         if result[feature][1] > min_max_conf[feature]['max']: 
-    #             min_max_conf[feature]['max'] = result[feature][1]
-    #     oc.save(min_max_conf, min_max_path)
-            
 
 if __name__ == '__main__': 
     main() 

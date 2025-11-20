@@ -6,11 +6,11 @@ import lightning as L
 
 
 class TransformerModel(L.LightningModule): 
-    def __init__(self, f_o_i: dict, transformer: dict, in_emb: dict, out_emb: dict):
+    def __init__(self, feature_config: dict, transformer: dict, in_emb: dict, out_emb: dict):
         super().__init__()
         self.save_hyperparameters() 
     
-        self.f_o_i = f_o_i
+        self.f_o_i = feature_config
         self.input_embedding = PlayerEmbeddingMLP(**in_emb)
         self.output_embedding = PlayerEmbeddingMLP(**out_emb)
         self.transformer = nn.Transformer(**transformer)

@@ -1,35 +1,31 @@
-import torch
-torch.set_float32_matmul_precision('medium')
-from torch.utils.data import DataLoader, random_split
-
 import hydra
+from omegaconf import DictConfig
+
+import torch
+from torch.utils.data import DataLoader, random_split
+torch.set_float32_matmul_precision("medium")
+
 import lightning as L 
 from lightning.pytorch.loggers.wandb import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.profilers import SimpleProfiler
-
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False # suppress SLURM warning from: https://github.com/Lightning-AI/pytorch-lightning/issues/6389
 
 from models.models import TransformerModel
-from data.data_loading import SequentialDataset, GraphDataset
+from data.data_loading import PlayDataset
 
-@hydra.main(config_path='./conf', config_name='train', version_base=None)
-def main(cfg): 
+@hydra.main(config_path="./conf", config_name="train", version_base=None)
+def main(cfg: DictConfig): 
     L.seed_everything(**cfg.seed_everything)
     
-    match cfg.data.type: 
-        case 'sequential': 
-            dataset = SequentialDataset(**cfg.data.dataset, feature_confgi=cfg.feature_config)
-        case 'graph': 
-            dataset = GraphDataset(**cfg.data.dataset, feature_config=cfg.feature_config)
+    dataset = PlayDataset(**cfg.data.dataset, feature_config=cfg.feature_config, data_type=cfg.data.data_type)
          
     train_dataset, val_dataset = random_split(dataset=dataset, lengths=cfg.data.dataloading.lengths)
     del cfg.data.dataloading.lengths
     train_dataloader = DataLoader(dataset=train_dataset, **cfg.data.dataloading)
     del cfg.data.dataloading.shuffle
-    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading)
-        
+    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading) 
         
     model = TransformerModel(feature_config=cfg.feature_config, transformer=cfg.model.transformer, in_emb=cfg.model.i, out_emb=cfg.model.o)
     logger = WandbLogger(**cfg.logger)
@@ -37,10 +33,7 @@ def main(cfg):
     profiler = SimpleProfiler(**cfg.profiler)
     trainer  = L.Trainer(logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
     
-    exit() 
-    
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     
-
 if __name__ == '__main__': 
     main() 
