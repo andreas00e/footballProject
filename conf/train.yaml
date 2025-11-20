@@ -6,20 +6,22 @@ seed_everything:
 project_dir: /home/ehre/Documents/footballProject
 save_dir: /home/ehre/Documents/footballProject/logs
 
-features_of_interest:
+feature_config:
   loading: ['nfl_id', 'frame_id']
   model:
-    norm:  ['absolute_yardline_number','player_height','player_weight','x','y','s','a','dir','o']
-    no_norm: ['player_to_predict','play_direction','player_position','player_side']
+    norm:  ['absolute_yardline_number', 'player_height', 'player_weight', 'x', 'y', 's', 'a', 'dir', 'o']
+    no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
     
 data:
+  type: graph # sequential  
   dataset: 
-    data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train
-    min_max_path: ${project_dir}/conf/updated_min_max_values.yaml    
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train
+    # data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_inv # path to invariant data
+    scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 
     lengths: [0.8, 0.2]
-    batch_size: 2
+    batch_size: 1
     shuffle: True
     num_workers: 4
     persistent_workers: True
