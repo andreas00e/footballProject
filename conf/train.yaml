@@ -13,9 +13,9 @@ feature_config:
     no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
     
 data:
-  data_type: 'graph'
+  data_type: 'sequential' # 'graph'
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv
     # data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_inv # path to invariant data
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
@@ -27,19 +27,21 @@ data:
     persistent_workers: True
 
 model: 
+  norm_length: ${len:${feature_config.model.norm}}
+  no_norm_length: ${len:${feature_config.model.no_norm}}
   transformer: 
-    d_model: 10
-    nhead: 5
-    dim_feedforward: 64
+    d_model: 256
+    nhead: 4
+    dim_feedforward: 256
     batch_first: True
-  i: 
-    input_dim: 13 
-    hidden_dim: 10 
-    output_dim: 10 
+  i:   
+    input_dim: ${add:${model.norm_length}, ${model.no_norm_length}}
+    hidden_dim: 512
+    output_dim: 256
   o: 
     input_dim: 2 
-    hidden_dim: 10 
-    output_dim: 10
+    hidden_dim: 256
+    output_dim: 256
 
   graph: None
 

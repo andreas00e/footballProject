@@ -91,7 +91,7 @@ class PlayDataset(Dataset):
                 data_list.append(f) 
             elif data_type == 'graph': 
                 data_list.append(Data(x=f, edge_index=edge_index))
-        return data_list
+        return data_list if data_type == 'graph' else torch.stack(data_list, dim=0)
     
     def _normalize(self, df: pd.DataFrame, file_type: str) -> pd.DataFrame:
         """Method normalizing, in the case of an input file, every in the respective yaml file 
@@ -141,15 +141,21 @@ class PlayDataset(Dataset):
         return len(self.plays)
         
     def __getitem__(self, index):       
-        item = self.plays[index] # get key stored at index of key list 
-        in_file, game_id, play_id = item
-        out_file = in_file.replace('input', 'output')
-        
-        input_frame = self.df_cache[in_file]
+        item = self.plays[index] # get keys stored at index of key list 
+        file, game_id, play_id = item   
+        if 'input' in file:
+            in_file = file 
+            out_file = file.replace('input', 'output')
+        else: 
+            in_file = file.replace('output', 'input')
+            out_file = file
+             
+        input_frame = self.df_cache[in_file] # TODO: Load only those columns that will be accessed later
         output_frame = self.df_cache[out_file]
-        
+                
         input_frame = input_frame[(input_frame['game_id'] == game_id) & (input_frame['play_id'] == play_id)]
         output_frame = output_frame[(output_frame['game_id'] == game_id) & (output_frame['play_id'] == play_id)]
+        output_frame = output_frame[['nfl_id', 'frame_id', 'x', 'y']]
         
         input_features_of_interest = self.feature_config['loading'] + self.feature_config['model']['norm'] + self.feature_config['model']['no_norm']
         input_frame = input_frame[input_features_of_interest]
@@ -158,5 +164,4 @@ class PlayDataset(Dataset):
         input_frame[to_np_float_64] = input_frame[to_np_float_64].astype(np.float64)
         input_frame['player_height'] = input_frame['player_height'].map(lambda x: np.float64(x.split('-')[0])*30.48+np.float64(x.split('-')[1])*2.54) # convert feet and inches to sane values (centimeters)
         input_frame['player_position'] = input_frame['player_position'].map(lambda x: np.float64(self.pos_embeddings[x])) 
-    
         return self._build_data(input_frame, file_type='input', data_type=self.data_type), self._build_data(output_frame, file_type='output', data_type=self.data_type)
