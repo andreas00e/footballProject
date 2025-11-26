@@ -15,13 +15,13 @@ feature_config:
 data:
   data_type: 'sequential' # 'graph'
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv
     # data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_inv # path to invariant data
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 
     lengths: [0.8, 0.2]
-    batch_size: 1
+    batch_size: 4
     shuffle: True
     num_workers: 4
     persistent_workers: True
@@ -29,6 +29,7 @@ data:
 model: 
   norm_length: ${len:${feature_config.model.norm}}
   no_norm_length: ${len:${feature_config.model.no_norm}}
+  window_size: 5
   transformer: 
     d_model: 256
     nhead: 4
