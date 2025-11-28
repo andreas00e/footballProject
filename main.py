@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver('len', lambda x: len(x))
@@ -29,9 +30,9 @@ def main(cfg: DictConfig):
     train_dataloader = DataLoader(dataset=train_dataset, **cfg.data.dataloading, collate_fn=collate_fn)
     
     del cfg.data.dataloading.shuffle
-    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading, collate_fn=collate_fn)     
+    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading, collate_fn=collate_fn)  
 
-    model = TransformerModel(feature_config=cfg.feature_config, window_size=cfg.model.window_size, 
+    model = TransformerModel(feature_config=cfg.feature_config, size_window=cfg.model.window_size, 
                              transformer=cfg.model.transformer, in_emb=cfg.model.i, out_emb=cfg.model.o)
     logger = WandbLogger(**cfg.logger)
     modelCheckpoint = ModelCheckpoint(**cfg.modelCheckpoint)
@@ -39,6 +40,7 @@ def main(cfg: DictConfig):
     trainer  = L.Trainer(logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
     
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
+    
     
 if __name__ == '__main__': 
     main() 

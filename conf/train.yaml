@@ -15,8 +15,7 @@ feature_config:
 data:
   data_type: 'sequential' # 'graph'
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv
-    # data_path: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_inv # path to invariant data
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 

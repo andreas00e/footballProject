@@ -1,42 +1,63 @@
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+from torchtyping import TensorType
 
 import lightning as L 
+from scipy.optimize import linear_sum_assignment
 
 
 class TransformerModel(L.LightningModule): 
-    def __init__(self, feature_config: dict, transformer: dict, in_emb: dict, out_emb: dict):
+    def __init__(self, feature_config: dict, size_window: int, transformer: dict, in_emb: dict, out_emb: dict):
         super().__init__()
         self.save_hyperparameters() 
     
         self.f_o_i = feature_config
-        self.input_embedding = PlayerEmbeddingMLP(**in_emb)
-        self.output_embedding = PlayerEmbeddingMLP(**out_emb)
+        self.size_window = size_window
+        self.f_embedding = PlayerEmbeddingMLP(**in_emb)
+        self.t_embedding = PlayerEmbeddingMLP(**out_emb)
+
         self.transformer = nn.Transformer(**transformer)
         self.linear = nn.Sequential( 
             nn.Linear(transformer['dim_feedforward'], 1000), 
             nn.ReLU(),
-            nn.Linear(1000, 2)
-        ) # TODO: adjust arcitecture to be more powerful/ sophisticated 
+            nn.Linear(1000, 2) # for every player and every frame? 
+        ) # TODO: adjust arcitecture to be more powerful/ sophisticated
+        
+    def forward(self, f, t):
+        f_emb, t_emb = self.f_embedding(f), self.t_embedding(t) # [batch*frames, players, embedded_features]
+        return self.linear(self.transformer(f_emb, t_emb))
 
-    def forward(self, src, tgt):
-        src_emb, tgt_emb = self.input_embedding(src), self.output_embedding(tgt)
-        return self.linear(self.transformer(src_emb, tgt_emb))
-    
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters())
         return optimizer
-     
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        x = x.view(-1, x.shape[2], x.shape[3])
-        y = y.view(-1, y.shape[2], y.shape[3])      
-        y_hat = self(x, y)
-        citerion = nn.MSELoss() # loss definition from: https://discuss.pytorch.org/t/rmse-loss-function/16540
-        loss = torch.sqrt(citerion(y_hat, y)) # RMSE loss: https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction
-        return loss         
-
+    
+    def training_step(self, batch, batch_idx): 
+        f, t = batch['features'], batch['targets'] # [batch, frames, players, features]
+        f_shape, t_shape = batch['features_shape'], batch['targets_shape']
+        
+        f = f.view(-1, f.shape[2], f.shape[3]) # [batch*frames, players, features]
+        t = t.view(-1, t.shape[2], t.shape[3])
+        
+        criterion = nn.MSELoss()
+        y_hat = self(f, t)
+        loss = torch.sqrt(criterion(y_hat, t))
+        
+        self.log_dict({'train_loss' : loss})
+    
+    def validation_step(self, batch, batch_idx): 
+        f, t = batch['features'], batch['targets'] # [batch, frames, players, features]
+        f_shape, t_shape = batch['features_shape'], batch['targets_shape']
+        
+        f = f.view(-1, f.shape[2], f.shape[3]) # [batch*frames, players, features]
+        t = t.view(-1, t.shape[2], t.shape[3])
+        
+        criterion = nn.MSELoss()
+        y_hat = self(f, t)
+        loss = torch.sqrt(criterion(y_hat, t))
+        
+        self.log_dict({'val_loss' : loss})
+    
 class PlayerEmbeddingMLP(nn.Module): 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()

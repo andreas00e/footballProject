@@ -1,14 +1,39 @@
 import os 
 import math 
-from tqdm import tqdm
 import argparse
+import numpy as np 
 import pandas as pd
+from tqdm import tqdm
 from pathlib import Path
 import multiprocessing as mp 
+from itertools import chain
 from functools import partial
-from typing import List, Literal
+from typing import Dict, List, Tuple, Union
 from omegaconf import OmegaConf as oc
 
+N_POSITIONS = {
+ 'QB': 0, 'RB': 0, 'FB': 0, 'WR': 0, 'TE': 0, 'C': 0, 'T': 0, 'OT': 0, 'OG': 0,
+ 'DG': 0, 'DT': 0, 'NT': 0, 'DE': 0, 'LB': 0, 'ILB': 0, 'OLB': 0, 'MLB': 0,
+ 'CB': 0, 'S': 0, 'FS': 0, 'SS': 0, 'K': 0, 'P': 0
+}
+
+def get_pos(csv_file: os.PathLike) -> Union[List, List[str]]:
+    """ Method returning every position present in the currently looked at dataframe 
+
+    Args:
+        file (os.PathLike): Path to pandas DataFrame
+
+    Returns:
+        Union[List, List[str]]: Returns an empty list, if the given file is an output file, r
+                                returns a list with all present positions, if the given file is an input file 
+    """
+    pos = []
+    if 'input' in csv_file:
+        df = pd.read_csv(csv_file)
+        pos = df['player_position'].unique().tolist()
+        if 'K' in pos: 
+            print(csv_file)
+    return pos 
 
 def pos_to_num(file_path: Path) -> dict[str: float]: 
     """ 
@@ -22,12 +47,82 @@ def pos_to_num(file_path: Path) -> dict[str: float]:
         pos_num = list(map(lambda x: math.sin(math.sqrt(int.from_bytes(x.encode('utf-8'), 'big'))), pos_lit))
         
         return dict(zip(pos_lit, pos_num))
+    
+def get_max_positions(file_path: os.PathLike) -> Tuple[int, int]: 
+    n_in_players =  0
+    n_out_players = 0
+    
+    df = pd.read_csv(file_path, usecols=['game_id', 'play_id', 'nfl_id'])
+    
+    games = df['game_id'].unique()
+    plays = df['play_id'].unique() 
+    
+    for game in games: 
+        for play in plays: 
+            n_players = df[(df['game_id'] == game) & (df['play_id'] == play)]['nfl_id'].nunique() 
+            if 'input' in file_path: 
+                n_in_players = n_players
+            else: 
+                week = file_path.split('/')[-1]
+                if n_players > 7: 
+                    print(f"{week} and {game} and {play}")
+                    print(n_players)
+                n_out_players = n_players
+                
+    
+    return n_in_players, n_out_players
+
+
+
+
+            
+            
+    
+    # for _, df_i in df.groupby(['game_id', 'play_id']): 
+    #     if 'input' in file_path: 
+    #         in_players = df_i['nfl_id'].nunique()
+    #         out_players = 0
+    #     if 'output' in file_path: 
+    #         print(file_path)
+    #         in_players = 0 
+    #         out_players = df_i['nfl_id'].nunique()
+    #         print(out_players)
+            
+    #     return in_players, out_players
+
+def get_max_frames(file_path: os.PathLike) -> Tuple[int, int]:      
+    df = pd.read_csv(file_path)
+    
+    
+    if 'input' in file_path: 
+        return df['frame_id'].max(), 0
+    elif 'output' in file_path: 
+        return 0, df['frame_id'].max()
+    else: 
+        return None 
+    
+def get_n_positions(file_path: os.PathLike) -> Dict:
+    df = pd.read_csv(file_path)
+    
+    for _, df_i in df.groupby(['game_id', 'play_id']): 
+        player_counts = dict(df_i[(df_i['frame_id']==1) & (df_i['player_to_predict']==True)]['player_position'].value_counts())
+        for key in player_counts.keys(): 
+            if player_counts[key] > N_POSITIONS[key]: 
+                 N_POSITIONS[key] = player_counts[key]
+        
+    return N_POSITIONS
 
 def get_min_max(file: Path, features: List[str]): # min_max_conf is a DictConfig...
     data = pd.read_csv(file)
-    data['player_height'] = data['player_height'].apply(lambda x: (int(x.split('-')[0])*12.0+int(x.split('-')[1]))*2.54)
-    min_max_dict = dict(zip(features, zip(data[features].min(), data[features].max())))
-    
+    if 'player_height' in data.columns.name: # input file 
+        data['player_height'] = data['player_height'].apply(lambda x: (int(x.split('-')[0])*12.0+int(x.split('-')[1]))*2.54)
+        min_max_dict = dict(zip(features, zip(data[features].min(), data[features].max())))
+
+    else: # output file
+        min_max_dict = dict(zip(features, zip((np.inf, -np.inf) for _ in range(len(features)))))
+        features = ['x', 'y']
+        min_max_dict['x'] = data[features].min()
+        min_max_dict['y'] = data[features].max() 
     return min_max_dict
 
 def transform(files: List[Path], flip: str ='both') -> None: 
@@ -76,6 +171,7 @@ def transform(files: List[Path], flip: str ='both') -> None:
         
         
 def main(): 
+    global N_POSITIONS
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_path', default='conf/train.yaml', help='Provide the path to the configuartion file needed for training.')
     parser.add_argument('--pos_path', default='data/positions/positions.txt', help='Provide the path to the text file storing all positions.')
@@ -88,36 +184,81 @@ def main():
     min_max_conf = oc.load(min_max_path)
     
     # output files don't contain any variables we don't already know the min and max values of
-    data_path = train_conf['data']['dataset']['data_path']
+    data_path = train_conf['data']['dataset']['data_dir']
     # files = [os.path.join(data_path, file) for file in os.listdir(data_path) if file.endswith('.csv') and 'input' in file]
     files = [os.path.join(data_path, file) for file in os.listdir(data_path) if file.endswith('.csv')]
-    features = train_conf['features_of_interest']['model']['norm']
+    features = train_conf['feature_config']['model']['norm']
     
-    transform(files=files)
-    exit()
+    # infile = None
+    # out_file = None
+    # in_max_frames, out_max_frames = 0, 0 
+    # for file in tqdm(files, colour='green'): 
+    #     in_frames, out_frames = get_max_frames(file)
+    #     if in_frames > in_max_frames: 
+    #         in_max_frames = in_frames
+    #         in_file = file
+    #     if out_frames > out_max_frames:
+    #         out_max_frames = out_frames
+    #         out_file = file
+    
+    # print("Maximum number of frames in an input play for all week, games, and plays: {n}, {f}".format(n=in_max_frames, f=in_file))
+    # print("Maximum number of frames in an output play for all week, games, and plays: {n}, {f}".format(n=out_max_frames, f=out_file))
+
+            
+    # exit()
         
-    #TODO: Add functionality that enables to not open the file if it already exists
-    with mp.Pool(processes=mp.cpu_count()) as pool: 
-        func = partial(get_min_max, features=features)
-        results = pool.map(func=func, iterable=files) 
+
+    # in_max_players, out_max_players = 0, 0
+    # for file in tqdm(files, colour='green'): 
+    #     in_players, out_players = get_max_positions(file)
+    #     if in_players > in_max_players: 
+    #         in_max_players = in_players
+    #     if out_players > out_max_players: 
+    #         out_max_players = out_players
+            
+    # print("Maximum number of input players in one play for all week, games, and plays: {}".format(in_max_players))
+    # print("Maximum number of output players in one play for all week, games, and plays: {}".format(out_max_players))
+    # exit()
+
     
-    # Old implementation from 04.11.25  
-    # min_max_path = '/'.join(min_max_path.split('/')[:-1])+'/updated_'+min_max_path.split('/')[-1]
-    dir_path, filename = os.path.split(min_max_path)
-    min_max_path = os.path.join(dir_path, f"updated_{filename}")
     
-    min_max_dict = {
-        feature: 
-            {
-               'min': min((result[feature][0] for result in results), default=math.inf), 
-               'max': max((result[feature][1] for result in results), default=-math.inf), 
-            }
-        for feature in results[0]
-    }
+    # for file in tqdm(files, colour='green'): 
+    #     if 'input' in file: 
+    #         file_dict = get_n_positions(file)
+    #         dict1 = {k: max(N_POSITIONS[k], file_dict.get(k, N_POSITIONS[k])) for k in N_POSITIONS.keys()}
+    #         N_POSITIONS = dict1
+    #         dict1 = {}
     
-    merged_min_max = dict(min_max_conf)
-    merged_min_max.update(min_max_dict)
-    oc.save(merged_min_max, min_max_path)
+    # print(N_POSITIONS)
+    # exit()
+    
+    # pos = []
+    # with mp.Pool(processes=mp.cpu_count()) as pool: 
+    #     pos = pool.map(func=get_pos, iterable=files)
+    
+    # pos = list(set(chain.from_iterable(pos)))
+    
+    # transform(files=files)
+        
+    # with mp.Pool(processes=mp.cpu_count()) as pool: #TODO: Add functionality that enables to not open the file if it already exists
+    #     func = partial(get_min_max, features=features)
+    #     results = pool.map(func=func, iterable=files) 
+    
+    # dir_path, filename = os.path.split(min_max_path)
+    # min_max_path = os.path.join(dir_path, f"updated_{filename}")
+    
+    # min_max_dict = {
+    #     feature: 
+    #         {
+    #            'min': min((result[feature][0] for result in results), default=math.inf), 
+    #            'max': max((result[feature][1] for result in results), default=-math.inf), 
+    #         }
+    #     for feature in results[0]
+    # }
+    
+    # merged_min_max = dict(min_max_conf)
+    # merged_min_max.update(min_max_dict)
+    # oc.save(merged_min_max, min_max_path)
     
     positions = pos_to_num(file_path=args.pos_path)
     pos_path = os.path.join(os.getcwd(), args.pos_path)
