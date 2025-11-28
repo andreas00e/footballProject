@@ -1,4 +1,8 @@
+import pygmtools as pygm
+pygm.set_backend('pytorch')
+
 from typing import Dict
+from scipy.optimize import linear_sum_assignment
 
 import torch
 import torch.nn.functional as F 
@@ -55,3 +59,26 @@ def collate_fn(batch) -> Dict[str, TensorType['*']]:
     }
     
     return data 
+
+def hungarian_matching(target: TensorType["batch*t_frames", "t_players", "t_features"], prediction: TensorType["batch*t_frames", "t_players", "t_features"]) -> None: 
+    target_x = target[:, :, 0:1]
+    target_y = target[:, :, 1:]
+    prediction_x = prediction[:, :, 0:1]
+    prediction_y = prediction[:, :, 1:]
+    
+    ones = torch.ones_like(target_x, dtype=target_x.dtype, device=target.device)
+        
+    target_x_view = target_x  @ torch.transpose(ones, dim0=-2, dim1=-1)
+    target_y_view = ones @ torch.transpose(target_y, dim0=-2, dim1=-1) 
+    prediction_x_view = prediction_x  @ torch.transpose(ones, dim0=-2, dim1=-1)
+    prediciton_y_view = ones @ torch.transpose(prediction_y, dim0=-2, dim1=-1) 
+ 
+    x_cost = torch.pow(input=(target_x_view - prediction_x_view), exponent=2)
+    y_cost = torch.pow(input=(target_y_view - prediciton_y_view), exponent=2)
+    
+    cost = 1/2 * (x_cost + y_cost) 
+    
+    assignment = pygm.hungarian(cost)
+    _, _, col_idx = assignment.nonzero(as_tuple=True) 
+    col_idx = col_idx.view(-1, target.shape[1]) 
+    return  col_idx
