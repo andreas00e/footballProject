@@ -165,13 +165,13 @@ class PlayDataset(Dataset):
         input_frame['player_height'] = input_frame['player_height'].map(lambda x: np.float64(x.split('-')[0])*30.48+np.float64(x.split('-')[1])*2.54) # convert feet and inches to sane values (centimeters)
         input_frame['player_position'] = input_frame['player_position'].map(lambda x: np.float64(self.pos_embeddings[x])) 
         
-        features = self._build_data(input_frame, file_type='input', data_type=self.data_type)
+        sources = self._build_data(input_frame, file_type='input', data_type=self.data_type)
         targets = self._build_data(output_frame, file_type='output', data_type=self.data_type)
         
         data = {
-            'features': features, 
+            'sources': sources, 
             'targets': targets,
-            'features_shape': features.shape[:2],
+            'sources_shape': sources.shape[:2],
             'targets_shape': targets.shape[:2]
             }
         

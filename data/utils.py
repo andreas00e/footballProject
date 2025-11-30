@@ -2,65 +2,65 @@ import pygmtools as pygm
 pygm.set_backend('pytorch')
 
 from typing import Dict
-from scipy.optimize import linear_sum_assignment
 
 import torch
 import torch.nn.functional as F 
 from torchtyping import TensorType
 
-max_f_players = 17 # XXX: If those numbers are bigger in one of the test files, this wouldn't work ...
+max_s_players = 17 # XXX: If those numbers are bigger in one of the test files, this wouldn't work ...
 max_t_players = 9
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 
     max_frames = 0
-    f_frames, t_frames = 0, 0 
-    features, targets, features_shape, targets_shape = [], [], [], []
+    s_frames, t_frames = 0, 0 
+    sources, targets, sources_shape, targets_shape = [], [], [], []
     
     for d in batch: 
-        f_frames = d['features_shape'][0]
+        s_frames = d['sources_shape'][0]
         t_frames = d['targets_shape'][0]
 
-        if f_frames > max_frames: 
-            max_frames = f_frames  
+        if s_frames > max_frames: 
+            max_frames = s_frames  
         if t_frames > max_frames: 
             max_frames = t_frames 
     
     for d in batch: # iterate over list elements len(batch) = batch_size 
-        f_frames, f_players = d['features_shape'] # [frames, players, features]
+        s_frames, s_players = d['sources_shape'] # [frames, players, features]
         t_frames, t_players = d['targets_shape'] # [frames, players, features]  
         
-        pad_f_players = max_f_players - f_players
+        pad_s_players = max_s_players - s_players
         pad_t_players = max_t_players - t_players
         
-        pad_f_frames = max_frames - f_frames 
+        pad_s_frames = max_frames - s_frames 
         pad_t_frames = max_frames - t_frames 
         
-        f = d['features']
+        f = d['sources']
         t = d['targets']
         
-        f = F.pad(f, (0, 0, 0, pad_f_players, 0, pad_f_frames), "constant", 0)
+        f = F.pad(f, (0, 0, 0, pad_s_players, 0, pad_s_frames), "constant", 0)
         t = F.pad(t, (0, 0, 0, pad_t_players, 0, pad_t_frames), "constant", 0)
 
-        features.append(f)
+        sources.append(f)
         targets.append(t)
-        features_shape.append((f_frames, f_players))
+        sources_shape.append((s_frames, s_players))
         targets_shape.append((t_frames, t_players))
         
-    features = torch.stack(features)
+    sources = torch.stack(sources)
     targets = torch.stack(targets)
-    features_shape = torch.tensor(features_shape, dtype=features.dtype, device=features.device)
+    sources_shape = torch.tensor(sources_shape, dtype=sources.dtype, device=sources.device)
     targets_shape = torch.tensor(targets_shape, dtype=targets.dtype, device=targets.device)
     
     data = {
-        'features': features, 
+        'sources': sources, 
         'targets': targets,
-        'features_shape': features_shape,
+        'sources_shape': sources_shape,
         'targets_shape': targets_shape
     }
     
     return data 
 
-def hungarian_matching(target: TensorType["batch*t_frames", "t_players", "t_features"], prediction: TensorType["batch*t_frames", "t_players", "t_features"]) -> None: 
+def hungarian_matching(target: TensorType["batch*t_frames", "t_players", "t_features"], prediction: TensorType["batch*t_frames", "t_players", "t_features"]) -> \
+    TensorType['batch*t_frames', 't_players', 't_player']: 
     target_x = target[:, :, 0:1]
     target_y = target[:, :, 1:]
     prediction_x = prediction[:, :, 0:1]
@@ -79,6 +79,4 @@ def hungarian_matching(target: TensorType["batch*t_frames", "t_players", "t_feat
     cost = 1/2 * (x_cost + y_cost) 
     
     assignment = pygm.hungarian(cost)
-    _, _, col_idx = assignment.nonzero(as_tuple=True) 
-    col_idx = col_idx.view(-1, target.shape[1]) 
-    return  col_idx
+    return assignment
