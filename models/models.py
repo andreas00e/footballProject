@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn 
 import lightning as L 
 
-from data.utils import hungarian_matching
 
 class TransformerModel(L.LightningModule): 
     def __init__(self, feature_config: dict, size_window: int, transformer: dict, in_emb: dict, out_emb: dict):
@@ -13,13 +12,14 @@ class TransformerModel(L.LightningModule):
         self.save_hyperparameters() 
         self.f_o_i = feature_config
         self.size_window = size_window
+        self.transformer = transformer 
         
         self.s_embedding = SmallPlayerEmbeddingMLP(**in_emb)
         self.t_embedding = SmallPlayerEmbeddingMLP(**out_emb)
         self.s_frame_embedding = FrameEmbeddingTF(transformer)
         self.t_frame_embedding = FrameEmbeddingTF(transformer)
 
-        self.transformer = nn.Transformer(**transformer)
+        self.transformer_model = nn.Transformer(**transformer)
                 
         self.pos = nn.Sequential( 
             nn.Linear(transformer['dim_feedforward'], 1000), 
@@ -48,8 +48,27 @@ class TransformerModel(L.LightningModule):
             
         mask = torch.concat(mask, dim=0)
         return mask.view(-1, mask.shape[-2], mask.shape[-1])
+    
+    def frame_mask(self, shapes_o, shapes_p, device):
+        shapes_o = shapes_o.cpu().numpy().astype(np.int32)
+        mask = []
+        for s in shapes_o: 
+            ones = torch.ones(1, s, shapes_p[2], shapes_p[2], device=device)
+            zeros = torch.zeros(1, shapes_p[1]-s, shapes_p[2], shapes_p[2], device=device)
+            s_mask = torch.concat((ones, zeros), dim=1)
+            mask.append(s_mask)
+            
+        mask = torch.concat(mask, dim=0)
+        return mask.view(-1, mask.shape[-2], mask.shape[-1])
         
-    def forward(self, s, t, s_player_mask, t_player_mask):
+    def forward(self, s, t, s_shape, t_shape):
+        s_player_mask = self.player_mask(shapes_o=s_shape[:, 1], shapes_p=s.shape, device=s.device)
+        t_player_mask = self.player_mask(shapes_o=t_shape[:, 1], shapes_p=t.shape, device=t.device)
+        
+        # s_frames_mask = self.frame_mask(shapes_o=s_shape[:, 1], shapes_p=s.shape, device=s.device)
+        t_frames_mask = self.frame_mask(shapes_o=t_shape[:, 0], shapes_p=t.shape, device=t.device)
+        t_frames_mask = t_frames_mask.repeat(self.transformer['nhead'], 1, 1)
+        
         s = s.view(-1, s.shape[2], s.shape[3]) # [batch*frames, s_players, s_features]
         t = t.view(-1, t.shape[2], t.shape[3]) # [batch*frames, t_players, t_features]
         
@@ -59,28 +78,22 @@ class TransformerModel(L.LightningModule):
         s_frame_emb = self.s_frame_embedding(s_emb, s_player_mask) # [batch*frames, s_players, emb_features]
         t_frame_emb = self.t_frame_embedding(t_emb, t_player_mask) # [batch*frames, t_players, emb_features]
         
-        t_hat = self.pos(self.transformer(s_frame_emb, t_frame_emb)) # [batch*frames, players, 2]
+        t_hat = self.pos(self.transformer_model(src=s_frame_emb, tgt=t_frame_emb, tgt_mask = t_frames_mask)) # [batch*frames, players, 2]
         return t_hat, t
             
     def training_step(self, batch, batch_idx): 
         s, t = batch['sources'], batch['targets'] # [batch, frames, s_/t_players, s_/t_features]
         s_shape, t_shape = batch['sources_shape'], batch['targets_shape']
         
-        s_player_mask = self.player_mask(shapes_o=s_shape[:, 1], shapes_p=s.shape, device=s.device)
-        t_player_mask = self.player_mask(shapes_o=t_shape[:, 1], shapes_p=t.shape, device=t.device)
-        
-        t_hat, t = self(s, t, s_player_mask, t_player_mask)
+        t_hat, t = self(s, t, s_shape, t_shape)
         loss = self.loss(t, t_hat, 'train')
         return loss 
     
     def validation_step(self, batch, batch_idx): 
         s, t = batch['sources'], batch['targets'] # [batch, frames, s_/t_players, s_/t_features]
         s_shape, t_shape = batch['sources_shape'], batch['targets_shape']
-        
-        s_player_mask = self.player_mask(shapes_o=s_shape[:, 1], shapes_p=s.shape, device=s.device)
-        t_player_mask = self.player_mask(shapes_o=t_shape[:, 1], shapes_p=t.shape, device=t.device)
-        
-        t_hat, t = self(s, t, s_player_mask, t_player_mask)
+                
+        t_hat, t = self(s, t, s_shape, t_shape)
         _ = self.loss(t, t_hat, 'val')
     
 class PlayerEmbeddingMLP(nn.Module): 
