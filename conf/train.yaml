@@ -3,26 +3,28 @@ seed_everything:
   workers: True
   verbose: False
 
-project_dir: /home/ehre/Documents/footballProject
-save_dir: /home/ehre/Documents/footballProject/logs
+project_dir: /home/ehre/Documents/footballProjectFolder/footballProject
+save_dir: /home/ehre/Documents/footballProjectFolder/footballProject/logs
 
 feature_config:
-  loading: ['nfl_id', 'frame_id']
+  loading: ['game_id','play_id', 'nfl_id', 'frame_id']
   model:
     norm:  ['absolute_yardline_number', 'player_height', 'player_weight', 'x', 'y', 's', 'a', 'dir', 'o']
     no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
+  used: ${add_3:${feature_config.loading}, ${feature_config.model.norm}, ${feature_config.model.no_norm}}
+  not_used: ['player_name', 'num_frames_output', 'ball_land_x', 'ball_land_y']
     
 data:
   data_type: 'sequential' # 'graph'
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 
     lengths: [0.8, 0.2]
     batch_size: 4
     shuffle: True
-    num_workers: 4
+    num_workers: 1
     persistent_workers: True
 
 model: 
@@ -35,7 +37,7 @@ model:
     dim_feedforward: 256
     batch_first: True
   i:   
-    input_dim: ${add:${model.norm_length}, ${model.no_norm_length}}
+    input_dim: ${add_2:${model.norm_length}, ${model.no_norm_length}}
     hidden_dim: False 
     output_dim: 256
   o: 
