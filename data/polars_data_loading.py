@@ -18,6 +18,7 @@ class PlayDataset(Dataset):
         self.pos_embedds: Dict[str, float] = self._load_pos_embedds(pos_path) 
         self.feature_config = feature_config
         self.data_type = data_type
+        self.plays_abc = []
         
         if self.data_type == "graph":
             self.edge_index_cache: Dict[int, TensorType["2, num_edges"]] = {}
@@ -31,6 +32,7 @@ class PlayDataset(Dataset):
         p_bar = tqdm(self.files, colour="green")
         
         for file in p_bar:
+            print("FILE")
             p_bar.set_description("Processing: {}".format(os.path.basename(file)))
             
             file_type = None
@@ -46,9 +48,7 @@ class PlayDataset(Dataset):
                 raise ValueError("Unexpected csv file name: {}. Expected \"input\" or \"output\" in filename.".format(file))  
                          
             df = pl.read_csv(df_path, columns=cols) 
-            games = df["game_id"].unique()
-            plays = []
-
+                                
             if "input" in file:
                 df = df.with_columns([
                     pl.when(pl.col("player_to_predict") == False).then(0.0).otherwise(1.0).alias("player_to_predict"),
@@ -59,18 +59,17 @@ class PlayDataset(Dataset):
                     (pl.col("player_height").str.split_exact("-", 2).struct.field("field_0").cast(pl.Float32) * 30.48 +
                     pl.col("player_height").str.split_exact("-", 2).struct.field("field_1").cast(pl.Float32) * 2.54
                     ).alias("player_height")
-                ]).cast(pl.Float32)
+                ])
                             
             df = self._normalize(df, file_type)
-                        
+            
+            games = df["game_id"].unique()
             for game in games: # one game of one week of data
-                plays = df.filter(pl.col("game_id") == game)["play_id"].unique()
-                for play in plays: # one play of one game of one week of data
-                    frames = df.filter((pl.col("game_id") == game) & (pl.col("play_id") == play)) 
-                    print(game)
-                    print(play)      
-                    data = self._build_data(frames, self.data_type)
-                    self.df_cache[(file, game, play)] = data
+                plays = df.filter(pl.col("game_id").cast(pl.Int64) == game)["play_id"].unique()
+                for play in plays:
+                    frame = df.filter((pl.col("game_id").cast(pl.Int64) == game) & (pl.col("play_id") == play))
+                    data = self._build_data(frame, self.data_type)
+                    self.df_cache[(file, game, play)] = data  
         
         self.item_list = list(self.df_cache.keys())
                             
@@ -80,23 +79,22 @@ class PlayDataset(Dataset):
             self.edge_index_cache[n_players] = torch.stack(A.nonzero(as_tuple=True), dim=0)
         return self.edge_index_cache[n_players]                  
         
-    def _build_data(self, df: pl.DataFrame, data_type: str) -> Union[List[TensorType] | List[Data]]:
-        n_players: int = df["nfl_id"].n_unique()
-        n_frames: int = df["frame_id"].n_unique()
+    def _build_data(self, frame: pl.DataFrame, data_type: str) -> Union[List[TensorType] | List[Data]]:
+        n_players: int = frame["nfl_id"].n_unique()
+        n_frames: int = frame["frame_id"].n_unique()
         data_list = [None for _ in range(n_frames)]
 
-        if self.data_type == 'graph': 
+        if self.data_type == "graph": 
             edge_index = self._get_edge_index(n_players)
-            
-        for i, f in df.group_by("frame_id"):
-            f = f.drop(['game_id', 'play_id', 'nfl_id', 'frame_id'])
-            f = f.to_torch(dtype=pl.Float32)
-            if data_type == 'sequential': 
-                data_list[int(i[0])-1] = f 
-            elif data_type == 'graph': 
+           
+        for i, f in enumerate(frame.partition_by("frame_id")): 
+            f = f.drop(["game_id", "play_id", "nfl_id", "frame_id"])
+            if data_type == "sequential": 
+                data_list[i] = f.to_torch(dtype=pl.Float32) 
+            elif data_type == "graph": 
                 data_list.append(Data(x=f, edge_index=edge_index))
                 
-        return data_list if data_type == 'graph' else torch.stack(data_list, dim=0)
+        return data_list if data_type == "graph" else torch.stack(data_list, dim=0)
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
         """Method normalizing, in the case of an input file, every in the respective yaml file 
@@ -113,7 +111,7 @@ class PlayDataset(Dataset):
         if file_type == "input": 
             scaling_conf = self.scaling_conf
         if file_type == "output": 
-            scaling_conf = {k: self.scaling_config[k] for k in ["x", "y"]}
+            scaling_conf = {k: self.scaling_conf[k] for k in ["x", "y"]}
 
         df = df.with_columns((pl.col(k) - v["min"]) / (v["max"] -  v["min"]) for k, v in scaling_conf.items())
         return df 
