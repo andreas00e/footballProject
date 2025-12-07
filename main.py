@@ -1,12 +1,12 @@
-from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
-OmegaConf.register_new_resolver('len', lambda x: len(x))
-OmegaConf.register_new_resolver('add', lambda x, y: x + y)
+OmegaConf.register_new_resolver("len", lambda x: len(x))
+OmegaConf.register_new_resolver("add_2", lambda x, y: x + y)
+OmegaConf.register_new_resolver("add_3", lambda x, y, z: x + y + z)
 
 import torch
 from torch.utils.data import DataLoader, random_split
-torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision("medium")
 
 import lightning as L 
 from lightning.pytorch.loggers.wandb import WandbLogger
@@ -16,10 +16,10 @@ from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False # suppress SLURM warning
 
 from models.models import TransformerModel
-from data.data_loading import PlayDataset
+from data.polars_data_loading import PlayDataset
 from data.utils import collate_fn
 
-@hydra.main(config_path='./conf', config_name='train', version_base=None)
+@hydra.main(config_path="./conf", config_name="train", version_base=None)
 def main(cfg: DictConfig): 
     L.seed_everything(**cfg.seed_everything)
     
@@ -42,5 +42,5 @@ def main(cfg: DictConfig):
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     
     
-if __name__ == '__main__': 
+if __name__ == "__main__": 
     main() 
