@@ -27,12 +27,19 @@ class PlayDataset(Dataset):
         self.item_list: List[Tuple[os.PathLike, str, str]] = []
             
         self._discover_plays() 
-    
-    def _discover_plays(self) -> None:
-        p_bar = tqdm(self.files, colour="green")
         
+    def _discover_plays(self) -> None:
+        """ A method for loading, preprocessing, and normalizing polars dataframes representing the given CSV files.
+            The resulting dataframe is then saved as the value of the dictionary, with the corresponding key being 
+            a triplet of the file name, the game ID, and the play ID. The item list serves as the iterable to be accessed 
+            when the dataset is in use for, e.g., training the model.
+
+        Raises:
+            ValueError: If neither "input" nor "output" unexpectedly is not part of teh currently loaded file name
+        """
+
+        p_bar = tqdm(self.files, bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]", colour="green")
         for file in p_bar:
-            print("FILE")
             p_bar.set_description("Processing: {}".format(os.path.basename(file)))
             
             file_type = None
@@ -54,60 +61,56 @@ class PlayDataset(Dataset):
                     pl.when(pl.col("player_to_predict") == False).then(0.0).otherwise(1.0).alias("player_to_predict"),
                     pl.when(pl.col("play_direction") == "right").then(0.0).otherwise(1.0).alias("play_direction"),
                     pl.when(pl.col("player_side") == "Defense").then(0.0).otherwise(1.0).alias("player_side"),
-                    
                     pl.col("player_position").replace_strict(self.pos_embedds, default=-1).alias("player_position"),
-                    (pl.col("player_height").str.split_exact("-", 2).struct.field("field_0").cast(pl.Float32) * 30.48 +
-                    pl.col("player_height").str.split_exact("-", 2).struct.field("field_1").cast(pl.Float32) * 2.54
+                    (pl.col("player_height").str.slice(0,1).cast(pl.Float32) * 30.48 +
+                    pl.col("player_height").str.slice(2,2).cast(pl.Float32) * 2.54
                     ).alias("player_height")
                 ])
+                
+            df = self._normalize(df=df, file_type=file_type)
                             
-            df = self._normalize(df, file_type)
-            
-            games = df["game_id"].unique()
-            for game in games: # one game of one week of data
-                plays = df.filter(pl.col("game_id").cast(pl.Int64) == game)["play_id"].unique()
-                for play in plays:
-                    frame = df.filter((pl.col("game_id").cast(pl.Int64) == game) & (pl.col("play_id") == play))
-                    data = self._build_data(frame, self.data_type)
-                    self.df_cache[(file, game, play)] = data  
+            for name, frame in df.group_by(["game_id", "play_id"]): 
+                game, play = name 
+                frame = frame.drop(["game_id", "play_id", "nfl_id"])
+                data = self._build_data(df=frame, n_rows=frame.shape[0], data_type=self.data_type)
+                self.df_cache[(file, game, play)] = data  
         
         self.item_list = list(self.df_cache.keys())
                             
     def _get_edge_index(self, n_players: int) -> TensorType["2", "num_edges"]:
+        """ A method that computes the adjacency matrix of a fully connected graph with n_players nodes, 
+            and later converts this matrix to a shape required by torch_geometric. 
+                        
+        Returns:
+            TensorType["2", "num_edges"]: A tensor describing all the present connections between the nodes of the graph. 
+            As the graph is modeled to be a fully connected graph, every node is connected with every other, except for itself. 
+        """
         if n_players not in self.edge_index_cache:
             A = torch.ones((n_players, n_players), dtype=torch.float32) - torch.eye(n_players, dtype=torch.float32)
             self.edge_index_cache[n_players] = torch.stack(A.nonzero(as_tuple=True), dim=0)
         return self.edge_index_cache[n_players]                  
         
-    def _build_data(self, frame: pl.DataFrame, data_type: str) -> Union[List[TensorType] | List[Data]]:
-        n_players: int = frame["nfl_id"].n_unique()
-        n_frames: int = frame["frame_id"].n_unique()
-        data_list = [None for _ in range(n_frames)]
-
+    def _build_data(self, df: pl.DataFrame, n_rows: int, data_type: str) -> Union[List[TensorType] | List[Data]]:
+        n_frames =  df["frame_id"].n_unique()
+        n_players = int(n_rows / n_frames) 
+          
         if self.data_type == "graph": 
             edge_index = self._get_edge_index(n_players)
-           
-        for i, f in enumerate(frame.partition_by("frame_id")): 
-            f = f.drop(["game_id", "play_id", "nfl_id", "frame_id"])
-            if data_type == "sequential": 
-                data_list[i] = f.to_torch(dtype=pl.Float32) 
-            elif data_type == "graph": 
-                data_list.append(Data(x=f, edge_index=edge_index))
+        
+        groups = torch.tensor(df.sort("frame_id").drop("frame_id").to_numpy()).view(n_frames, n_players, -1)
                 
-        return data_list if data_type == "graph" else torch.stack(data_list, dim=0)
+        return groups if data_type == "graph" else groups
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
-        """Method normalizing, in the case of an input file, every in the respective yaml file 
-           stated variable, and in the case of an output file, the x-coordinates and the y-coordinates
-
-        Args:
-            df (pd.DataFrame): pd.DataFrame whose values are to be normalized
-            file_type (str): Informing the method whether it was given an input file or an output file 
-
-        Returns:
-            pd.DataFrame: pd.DataFrame with the in the resepctive yaml file 
-            or only the x-coordinate and y-coordinate normalized columns
         """
+            A method for normalizing, in the case of an input file, 
+            every stated variable in the respective YAML file, and in the case of an output file, 
+            the x-coordinates and the y-coordinates.
+        
+        Returns:
+            pl.DataFrame: The pl.DataFrame with normalized columns.
+        """
+
         if file_type == "input": 
             scaling_conf = self.scaling_conf
         if file_type == "output": 
@@ -120,12 +123,10 @@ class PlayDataset(Dataset):
     def _load_pos_embedds(path: os.PathLike) -> Dict[str, float]: 
         """ Method converting the literal name of a player to a 
             float value for later usage in model pipeline
-        Args:
-            path (os.PathLike): path to file holding all positions (str) that are 
-                                present in the provided csv files
+            
         Returns:
-            Dict[str, float]: Dicitionary with the keys being the position name (str),
-                              and the values being the the embeddings associated with 
+            Dict[str, float]: A dictionary with the keys being the position name (str),
+                              and the values being the embeddings associated with 
                               their respective position (float)
         """
         data = {}
