@@ -97,7 +97,7 @@ class PlayDataset(Dataset):
         if self.data_type == "graph": 
             edge_index = self._get_edge_index(n_players)
         
-        groups = torch.tensor(df.sort("frame_id").drop("frame_id").to_numpy()).view(n_frames, n_players, -1)
+        groups = torch.tensor(df.sort("frame_id").drop("frame_id").to_numpy(), dtype=torch.float32).view(n_frames, n_players, -1)
                 
         return groups if data_type == "graph" else groups
     
