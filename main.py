@@ -32,8 +32,7 @@ def main(cfg: DictConfig):
     del cfg.data.dataloading.shuffle
     val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading, collate_fn=collate_fn)  
 
-    model = TransformerModel(feature_config=cfg.feature_config, size_window=cfg.model.window_size, 
-                             transformer=cfg.model.transformer, in_emb=cfg.model.i, out_emb=cfg.model.o)
+    model = TransformerModel(feature_config=cfg.feature_config, transformer=cfg.model.transformer, in_emb=cfg.model.i, out_emb=cfg.model.o)
     logger = WandbLogger(**cfg.logger)
     modelCheckpoint = ModelCheckpoint(**cfg.modelCheckpoint)
     profiler = SimpleProfiler(**cfg.profiler)

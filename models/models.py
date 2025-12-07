@@ -7,12 +7,12 @@ import lightning as L
 
 
 class TransformerModel(L.LightningModule): 
-    def __init__(self, feature_config: dict, size_window: int, transformer: dict, in_emb: dict, out_emb: dict):
+    def __init__(self, feature_config: dict, transformer: dict, in_emb: dict, out_emb: dict):
         super().__init__()
         self.save_hyperparameters() 
         self.f_o_i = feature_config
-        self.size_window = size_window
-        self.transformer = transformer 
+        self.transformer = transformer
+        self.out_size = out_emb.output_dim
         
         self.s_embedding = SmallPlayerEmbeddingMLP(**in_emb)
         self.t_embedding = SmallPlayerEmbeddingMLP(**out_emb)
@@ -22,9 +22,9 @@ class TransformerModel(L.LightningModule):
         self.transformer_model = nn.Transformer(**transformer)
                 
         self.pos = nn.Sequential( 
-            nn.Linear(transformer['dim_feedforward'], 1000), 
+            nn.Linear(transformer.dim_feedforward, 1000), # TODO: number -> variable
             nn.ReLU(),
-            nn.Linear(1000, 2) 
+            nn.Linear(1000, 2) # TODO: number -> variable
         )
     
     def configure_optimizers(self):
@@ -41,8 +41,8 @@ class TransformerModel(L.LightningModule):
         shapes_o = shapes_o.cpu().numpy().astype(np.int32)
         mask = []
         for s in shapes_o: 
-            ones = torch.ones(1, shapes_p[1], s , 256, device=device)
-            zeros = torch.zeros(1, shapes_p[1], shapes_p[2]-s, 256, device=device)
+            ones = torch.ones(1, shapes_p[1], s , self.out_size, device=device) # TODO: number -> variable
+            zeros = torch.zeros(1, shapes_p[1], shapes_p[2]-s, self.out_size, device=device)
             s_mask = torch.concat((ones, zeros), dim=2)
             mask.append(s_mask)
             
