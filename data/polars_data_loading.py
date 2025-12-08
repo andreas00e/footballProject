@@ -72,7 +72,7 @@ class PlayDataset(Dataset):
             for name, frame in df.group_by(["game_id", "play_id"]): 
                 game, play = name 
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
-                data = self._build_data(df=frame, n_rows=frame.shape[0], data_type=self.data_type)
+                data = self._build_data(df=frame, n_rows=frame.shape[0], data_type=self.data_type, file_type=file_type)
                 self.df_cache[(file, game, play)] = data  
         
         self.item_list = list(self.df_cache.keys())
@@ -90,15 +90,22 @@ class PlayDataset(Dataset):
             self.edge_index_cache[n_players] = torch.stack(A.nonzero(as_tuple=True), dim=0)
         return self.edge_index_cache[n_players]                  
         
-    def _build_data(self, df: pl.DataFrame, n_rows: int, data_type: str) -> Union[List[TensorType] | List[Data]]:
+    def _build_data(self, df: pl.DataFrame, n_rows: int, data_type: str, file_type: str) -> Union[List[TensorType] | List[Data]]:
         n_frames =  df["frame_id"].n_unique()
         n_players = int(n_rows / n_frames) 
           
         if self.data_type == "graph": 
             edge_index = self._get_edge_index(n_players)
-        
-        groups = torch.tensor(df.sort("frame_id").drop("frame_id").to_numpy(), dtype=torch.float32).view(n_frames, n_players, -1)
-                
+            
+        groups = df.sort("frame_id").drop("frame_id")   
+        if file_type == "input": 
+            columns = groups.columns
+            columns.remove("x")
+            columns.remove("y")
+            groups = groups.select(["x", "y"]+columns)
+         
+        groups = torch.tensor(groups.to_numpy(), dtype=torch.float32).view(n_frames, n_players, -1)
+
         return groups if data_type == "graph" else groups
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
