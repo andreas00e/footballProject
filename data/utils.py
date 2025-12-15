@@ -5,95 +5,49 @@ import torch
 import torch.nn.functional as F 
 from torchtyping import TensorType
 
-
 @dataclass
 class padding:         
-    max_source_players: int = 17 # XXX: If those numbers are bigger in one of the test files, this wouldn't work ...
-    max_target_players: int = 9 
+    max_src_players: int = 17
+    max_tgt_players: int = 9 
+        
 
-def collate_fn(batch): # XXX: batch-wise frame padding, global player padding
+def collate_fn(batch) -> Dict[str, TensorType['*']]: 
     p = padding()
-    max_frames = 0
-    sources, targets = [], []
-
-    for element in batch: # XXX: batch-wise padding 
-        source_frames = element["source_shape"][0] 
-        target_frames = element["target_shape"][0]
-        
-        if source_frames + target_frames > max_frames: 
-            max_frames = source_frames + target_frames 
-
+    srcs, tgts, = [], []
+    
+    src_max_frames, tgt_max_frames, src_frames, tgt_frames = 0, 0, 0, 0
+    
     for element in batch: 
-        source = element["source"] # frames, players, features
-        target = element["target"] # frames, players, features 
-        source_frames, source_players, source_features = element["source_shape"]
-        target_frames, target_players, target_features = element["target_shape"]
-        
-        frame_pad = max_frames - (source_frames + target_frames)
-        source_players_pad = p.max_source_players - source_players
-        target_players_pad = p.max_target_players - target_players
-        target_features_pad = source_features - target_features
+        src_frames = element["source_shape"][0]
+        tgt_frames = element["target_shape"][0]
 
-        source = F.pad(input=source, pad=[0, 0, 0, source_players_pad, 0, 0], value=-2)          
-        target = F.pad(input=target, pad=[0, target_features_pad, 0, target_players_pad, 0, frame_pad], mode="constant", value=-2) # pad: feature_left, feature_right, player_left, ..., frame_right
+        if src_frames > src_max_frames: 
+            src_max_frames = src_frames  
+        if tgt_frames > tgt_max_frames: 
+            tgt_max_frames = tgt_frames 
+    
+    for element in batch: 
+        src_frames, src_players = element["source_shape"] # src_frames, src_players, src_features
+        tgt_frames, tgt_players = element["target_shape"] # tgt_frames, tgt_players, tgt_features  
         
-        sources.append(source)
-        targets.append(targets)
+        pad_src_players = p.max_src_players - src_players
+        pad_tgt_players = p.max_tgt_players - tgt_players
+        
+        pad_s_frames = src_max_frames - src_frames 
+        pad_t_frames = tgt_max_frames - tgt_frames 
+        
+        src = element["source"]
+        tgt = element["target"]
+        
+        src = F.pad(src, (0, 0, 0, pad_src_players, 0, pad_s_frames), "constant", -1)
+        tgt = F.pad(tgt, (0, 0, 0, pad_tgt_players, 0, pad_t_frames), "constant", -1)
 
+        srcs.append(src), tgts.append(tgt)
         
+    srcs = torch.stack(srcs).permute(1, 0, 2, 3) # src_frames, batch, src_players, src_features 
+    tgts = torch.stack(tgts).permute(1, 0, 2, 3) # tgt_frames, batch, tgt_players, tgt_features 
+    
     return {
-        "source": torch.stack(sources, dim=0),
-        "target": target,
+        "source": srcs, 
+        "target": tgts,
     }
-        
-
-# def collate_fn(batch) -> Dict[str, TensorType['*']]: 
-#     max_frames = 0
-#     s_frames, t_frames = 0, 0 
-#     sources, targets, sources_shape, targets_shape = [], [], [], []
-    
-#     p = padding()
-    
-#     for d in batch: 
-#         s_frames = d['sources_shape'][0]
-#         t_frames = d['targets_shape'][0]
-
-#         if s_frames > max_frames: 
-#             max_frames = s_frames  
-#         if t_frames > max_frames: 
-#             max_frames = t_frames 
-    
-#     for d in batch: # iterate over list elements len(batch) = batch_size 
-#         s_frames, s_players = d['sources_shape'] # [frames, players, features]
-#         t_frames, t_players = d['targets_shape'] # [frames, players, features]  
-        
-#         pad_s_players = p.max_source_players - s_players
-#         pad_t_players = p.max_target_players - t_players
-        
-#         pad_s_frames = max_frames - s_frames 
-#         pad_t_frames = max_frames - t_frames 
-        
-#         f = d['sources']
-#         t = d['targets']
-        
-#         f = F.pad(f, (0, 0, 0, pad_s_players, 0, pad_s_frames), "constant", -1)
-#         t = F.pad(t, (0, 0, 0, pad_t_players, 0, pad_t_frames), "constant", -1)
-
-#         sources.append(f)
-#         targets.append(t)
-#         sources_shape.append((s_frames, s_players))
-#         targets_shape.append((t_frames, t_players))
-        
-#     sources = torch.stack(sources)
-#     targets = torch.stack(targets)
-#     sources_shape = torch.tensor(sources_shape, dtype=sources.dtype, device=sources.device)
-#     targets_shape = torch.tensor(targets_shape, dtype=targets.dtype, device=targets.device)
-    
-#     data = {
-#         'sources': sources, 
-#         'targets': targets,
-#         'sources_shape': sources_shape,
-#         'targets_shape': targets_shape
-#     }
-    
-#     return data 
