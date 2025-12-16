@@ -1,14 +1,50 @@
 import os 
+import numpy as np 
 import polars as pl
 from tqdm import tqdm 
-from typing import Dict, List, Tuple, Union
 from omegaconf import OmegaConf
+from numpy.linalg import vector_norm as lavn
+from typing import Dict, List, Tuple, Union
 
 import torch 
 from torchtyping import TensorType
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
+
+def geometric_output_features(groups: np.ndarray) -> np.ndarray: 
+    """ A method that augments the two coordinates given in the output to the same 
+        number of features as in the input to faciliate later learning
+
+    Args:
+        groups (np.ndarray): The array containing the x- and y-coordinates from every player of one frame 
+
+    Returns:
+        np.ndarray: The augmented array 
+    """
+    x = groups[:, :, 0]
+    y = groups[:, :, 1]
+    theta = np.arctan2(y, x)
+    x_x = np.pow(x, 2)
+    y_y = np.pow(y, 2)
+    
+    features = [
+        x, 
+        y, 
+        np.sqrt(x), 
+        theta, 
+        x_x, 
+        y_y, 
+        x*y, 
+        np.abs(x), 
+        np.abs(y), 
+        np.sin(theta), 
+        np.cos(theta), 
+        np.sqrt(x_x+y_y), # every player's distance to the origin 
+        np.ones_like(x) # bias
+        ]
         
+    return np.stack(features, axis=-1)
+         
 class PlayDataset(Dataset):     
     def __init__(self, data_dir: os.PathLike, scaling_path: os.PathLike, pos_path: os.PathLike, feature_config: dict, data_type: str):
         self.data_dir = data_dir
@@ -103,9 +139,13 @@ class PlayDataset(Dataset):
             columns.remove("x")
             columns.remove("y")
             groups = groups.select(["x", "y"]+columns)
+        
+        groups = groups.to_numpy().reshape(n_frames, n_players, -1)
+             
+        if file_type == "output": 
+            groups = geometric_output_features(groups)
          
-        groups = torch.tensor(groups.to_numpy(), dtype=torch.float32).view(n_frames, n_players, -1)
-
+        groups = torch.tensor(groups, dtype=torch.float32)
         return groups if data_type == "graph" else groups
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
@@ -148,21 +188,21 @@ class PlayDataset(Dataset):
         
     def __getitem__(self, index) -> Dict[TensorType, TensorType]:       
         file, game, play = self.item_list[index]
-        if 'input' in file:
+        if "input" in file:
             in_file = file
-            out_file = file.replace('input', 'output')
+            out_file = file.replace("input", "output")
         else: 
-            in_file = file.replace('output', 'input')
+            in_file = file.replace("output", "input")
             out_file = file
              
         sources = self.df_cache[(in_file, int(game), int(play))] 
         targets = self.df_cache[(out_file, int(game), int(play))]            
         
         data = {
-            'sources': sources, 
-            'targets': targets,
-            'sources_shape': sources.shape[:2],
-            'targets_shape': targets.shape[:2]
+            "source": sources, 
+            "target": targets,
+            "source_shape": sources.shape[:2],
+            "target_shape": targets.shape[:2]
             }
         
         return data
