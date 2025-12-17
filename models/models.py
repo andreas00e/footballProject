@@ -39,8 +39,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.outs = self.outs.expand([-1, self.batch_size, self.model_conf.players, -1]) # [1, batch, players, features+self.io_last_dim] 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters())
-        lr_scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=100, eta_min=0.1) # TODO: Move lr parameters to conf
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.model_conf.optimizer.lr)
+        lr_scheduler = CosineAnnealingLR(optimizer, T_max=self.model_conf.lr_scheduler.T_max, eta_min=self.model_conf.lr_scheduler.eta_min)
         return {
             "optimizer": optimizer, 
             "lr_scheduler": lr_scheduler

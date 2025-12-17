@@ -13,7 +13,7 @@ feature_config:
     no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
   used: ${add_3:${feature_config.loading}, ${feature_config.model.norm}, ${feature_config.model.no_norm}}
   not_used: ['player_name', 'num_frames_output', 'ball_land_x', 'ball_land_y']
-    
+  
 data:
   data_type: 'sequential' # 'graph'
   dataset: 
@@ -34,7 +34,12 @@ model:
   players: 17 
   features: ${add_2:${model.norm_length}, ${model.no_norm_length}} 
   batch: ${data.dataloading.batch_size}
-
+  optimizer: 
+    lr: 0.0001
+    # betas: [0.9, 0.999]
+  lr_scheduler: 
+    T_max: 100
+    eta_min: 0.1
   transformer: 
     d_model: 16
     nhead: 2
@@ -55,7 +60,7 @@ model:
 logger: 
   name: NFLogger
   save_dir: ${save_dir}/logger
-  version: '3'
+  version: '4'
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
