@@ -1,3 +1,5 @@
+import numpy as np
+from numpy.linalg import vector_norm as lavn
 from typing import Dict
 from dataclasses import dataclass
 
@@ -8,14 +10,13 @@ from torchtyping import TensorType
 @dataclass
 class padding:         
     max_src_players: int = 17
-    max_tgt_players: int = 9 
-        
+    max_tgt_players: int = 17   
+    # max_tgt_players: int = 9
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 
     p = padding()
     srcs, tgts, = [], []
-    
-    src_max_frames, tgt_max_frames, src_frames, tgt_frames = 0, 0, 0, 0
+    src_max_frames, tgt_max_frames, src_frames, tgt_frames = [0,]*4
     
     for element in batch: 
         src_frames = element["source_shape"][0]
@@ -38,7 +39,7 @@ def collate_fn(batch) -> Dict[str, TensorType['*']]:
         
         src = element["source"]
         tgt = element["target"]
-        
+            
         src = F.pad(src, (0, 0, 0, pad_src_players, 0, pad_s_frames), "constant", -1)
         tgt = F.pad(tgt, (0, 0, 0, pad_tgt_players, 0, pad_t_frames), "constant", -1)
 
