@@ -17,7 +17,7 @@ feature_config:
 data:
   data_type: 'sequential' # 'graph'
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 
@@ -41,16 +41,16 @@ model:
     T_max: 100
     eta_min: 0.1
   transformer: 
-    d_model: 16
-    nhead: 2
-    dim_feedforward: 16 
+    d_model: 64
+    nhead: 4
+    dim_feedforward: 64
   pos: 
-    hidden_dim: 16
+    hidden_dim: 64
     output_dim: ${model.features}
   i:   
     input_dim: ${model.features}
-    hidden_dim: 32
-    output_dim: 16
+    hidden_dim: 128
+    output_dim: 64
   o: 
     input_dim: ${model.features}
     hidden_dim: 8
@@ -60,7 +60,7 @@ model:
 logger: 
   name: NFLogger
   save_dir: ${save_dir}/logger
-  version: '4'
+  version: '8'
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger

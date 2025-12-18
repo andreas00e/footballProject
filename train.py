@@ -27,10 +27,10 @@ def main(cfg: DictConfig):
          
     train_dataset, val_dataset = random_split(dataset=dataset, lengths=cfg.data.dataloading.lengths)
     del cfg.data.dataloading.lengths
-    train_dataloader = DataLoader(dataset=train_dataset, **cfg.data.dataloading, collate_fn=collate_fn)
+    train_dataloader = DataLoader(dataset=train_dataset, **cfg.data.dataloading, collate_fn=collate_fn, drop_last=True)
     
     del cfg.data.dataloading.shuffle
-    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading, collate_fn=collate_fn)  
+    val_dataloader = DataLoader(dataset=val_dataset, **cfg.data.dataloading, collate_fn=collate_fn, drop_last=True)  
 
     # model = TransformerModel(feature_config=cfg.feature_config, transformer_conf=cfg.model.transformer, in_emb=cfg.model.i, out_emb=cfg.model.o)
     model = DecoderOnlyTransformer(model_conf=cfg.model, in_emb=cfg.model.i)

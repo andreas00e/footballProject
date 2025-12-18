@@ -92,6 +92,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq_hat = self.decoder(src=seq_emb, mask=mask, src_key_padding_mask=src_key_padding_mask) # [1+src_frames+1+tgt_frames+1, batch, emb_features]
         seq_hat = seq_hat.unsqueeze(-2).expand([-1]*2+[seq.shape[-2]]+[-1]) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
         seq_hat = self.pos(seq_hat) # [1+src_frames+1+tgt_frames+1, batch, players, features]
+        seq_hat *= ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_hat.shape[-1]]) # mask out frame and player paddings 
         return seq_hat
     
     def training_step(self, batch, batch_idx): 
