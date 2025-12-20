@@ -1,3 +1,4 @@
+import os 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("len", lambda x: len(x))
@@ -19,6 +20,7 @@ from models.models import DecoderOnlyTransformer
 from data.polars_data_loading import PlayDataset
 from data.utils import collate_fn
 
+
 @hydra.main(config_path="./conf", config_name="train", version_base=None)
 def main(cfg: DictConfig): 
     L.seed_everything(**cfg.seed_everything)
@@ -37,7 +39,7 @@ def main(cfg: DictConfig):
     logger = WandbLogger(**cfg.logger)
     modelCheckpoint = ModelCheckpoint(**cfg.modelCheckpoint)
     profiler = SimpleProfiler(**cfg.profiler)
-    trainer  = L.Trainer(accelerator="gpu", logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
+    trainer  = L.Trainer(logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
     
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     

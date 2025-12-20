@@ -83,7 +83,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq = torch.concat(tensors=(seq, torch.concat(tensors=(ins, outs), dim=0)), dim=-1) # [1+src_frames+1+tgt_frames+1, batch, players, features+io_last_dim]
         
         seq_emb = self.seq_emb(seq) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
-        seq_emb *= ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_emb.shape[-1]])
+        seq_emb = seq_emb * ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_emb.shape[-1]])
         seq_emb = seq_emb.sum(-2).squeeze() # [1+src_frames+1+tgt_frames+1, batch, emb_features] # TODO: Implement more sophisticated nn.Module
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=self.device, dtype=seq_emb.dtype)
@@ -92,24 +92,28 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq_hat = self.decoder(src=seq_emb, mask=mask, src_key_padding_mask=src_key_padding_mask) # [1+src_frames+1+tgt_frames+1, batch, emb_features]
         seq_hat = seq_hat.unsqueeze(-2).expand([-1]*2+[seq.shape[-2]]+[-1]) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
         seq_hat = self.pos(seq_hat) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        seq_hat *= ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_hat.shape[-1]]) # mask out frame and player paddings 
-        return seq_hat
+        
+        seq = seq * ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq.shape[-1]]) # mask out frame and player paddings
+        seq = seq[..., :-self.io_last_dim]
+        seq_hat = seq_hat *  ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_hat.shape[-1]]) # mask out frame and player paddings 
+        
+        return seq, seq_hat
     
     def training_step(self, batch, batch_idx): 
         y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                    
+        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                    
         loss = self._loss(y, y_hat, "train")
         return loss 
 
     def validation_step(self, batch, batch_idx): 
         y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                       
+        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                       
         loss = self._loss(y, y_hat, "val")
         return loss 
 
     def test_step(self, batch, batch_idx): 
         y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                         
+        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                         
         loss = self._loss(y, y_hat, "test")
         return loss 
     
