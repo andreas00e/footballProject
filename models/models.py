@@ -1,4 +1,5 @@
 from typing import Dict, Tuple, Union
+
 import torch 
 import torch.nn as nn 
 from torchtyping import TensorType
@@ -6,12 +7,15 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import lightning as pl
 
+from models.utils import PositionalEncoding
+
 class DecoderOnlyTransformer(pl.LightningModule):
     def __init__(self, model_conf: dict, in_emb: dict):
         super().__init__()
         self.save_hyperparameters()
         
         self.model_conf: Dict[str: Union[int, None]] = model_conf 
+        self.frame_embedding = self.model_conf.frame_embedding # "tf": attention between all players of one frame # "add": addition of the player embeddings of one frame 
         self.seq_token_shape = [1, 1, self.model_conf.players, self.model_conf.features]
         self.batch_size = self.model_conf.batch
         self.io_last_dim = int(self.model_conf.i.output_dim * self.model_conf.token_factor)
@@ -21,8 +25,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.criterion = nn.MSELoss() # TODO: Change self.criterion to RMSE
         
         self.seq_emb = PlayerEmbeddingMLP(**in_emb)
+        self.frame_emb = FrameEmbeddingTF(d_model=16, nhead=1, dim_feedforward=16, num_layers=1)
         self.encoder_layer = nn.TransformerEncoderLayer(**self.model_conf.transformer) # TODO: change d_model and dim_feedforward 
         self.decoder = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
+        self.pe = PositionalEncoding(d_model=16, max_len=150) # TODO: d_model, and max_len to conf
         self.pos = PosMLP(self.model_conf)   
         
     def on_fit_start(self):
@@ -84,8 +90,18 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         seq_emb = self.seq_emb(seq) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
         seq_emb = seq_emb * ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_emb.shape[-1]])
-        seq_emb = seq_emb.sum(-2).squeeze() # [1+src_frames+1+tgt_frames+1, batch, emb_features] # TODO: Implement more sophisticated nn.Module
+        if self.frame_embedding == "add":
+            seq_emb = seq_emb.sum(-2).squeeze() # [1+src_frames+1+tgt_frames+1, batch, emb_features] 
+        elif self.frame_embedding == "tf": 
+            seq_emb = seq_emb.view(-1, seq_emb.shape[2], seq_emb.shape[3]).permute(1, 0, 2) # [players, (1+src_frames+1+tgt_frames+1) * batch, emb_features]
+            src_key_padding_mask = seq_mask.view(-1, seq_mask.shape[-1])
+            seq_emb = self.frame_emb(seq_emb, src_key_padding_mask=src_key_padding_mask) # [players, (1+src_frames+1+tgt_frames+1) * batch, emb_features]
+            seq_emb = seq_emb.permute(1, 0, 2).view([*(seq.shape[:-1])]+[-1]).sum(-2).squeeze()
         
+        pe = self.pe.postionalEncoding # TODO: Rename # [seq_len, d_model] -> [1+src_frames+1+tgt_frames+1, batch, emb_features]
+        pe = pe.expand([-1, seq_emb.shape[1], -1])[:seq_emb.shape[0], ...] # [1+src_frames+1+tgt_frames+1, batch, emb_features]
+        seq_emb = seq_emb + pe * ~seq_mask.all(-1).unsqueeze(-1).expand([-1,]*2+[seq_emb.shape[-1]])
+             
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=self.device, dtype=seq_emb.dtype)
         src_key_padding_mask = seq_mask.all(-1).permute(1, 0).to(torch.float32) # [batch, 1+src_frames+1+tgt_frames+1]
         
@@ -140,12 +156,21 @@ class PosMLP(nn.Module):
         super().__init__()
         
         self.feature = nn.Sequential( 
-            nn.Linear(model_conf.i.output_dim, model_conf.pos.hidden_dim),
+            nn.Linear(model_conf.i.output_dim, model_conf.pos.hidden_dim_1),
             nn.ReLU(),
-            nn.Linear(model_conf.pos.hidden_dim, model_conf.pos.hidden_dim), 
+            nn.Linear(model_conf.pos.hidden_dim_1, model_conf.pos.hidden_dim_2), 
             nn.ReLU(), 
-            nn.Linear(model_conf.pos.hidden_dim, model_conf.pos.output_dim),
+            nn.Linear(model_conf.pos.hidden_dim_2, model_conf.pos.output_dim),
         )
     
     def forward(self, x): 
         return self.feature(x)
+    
+class FrameEmbeddingTF(nn.Module): 
+    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, num_layers: int) -> None:
+        super().__init__()
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward) # TODO: Move parameters to conf
+        self.transformerEncoder = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=num_layers) # TODO: Move "layers" to conf
+    
+    def forward(self, x: TensorType["*"], src_key_padding_mask: TensorType["*"]) -> TensorType["*"]: 
+        return self.transformerEncoder(x, src_key_padding_mask=src_key_padding_mask)

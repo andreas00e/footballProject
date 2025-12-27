@@ -15,9 +15,9 @@ feature_config:
   not_used: ['player_name', 'num_frames_output', 'ball_land_x', 'ball_land_y']
   
 data:
-  data_type: 'sequential' # 'graph'
+  data_type: sequential # graph
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
   dataloading: 
@@ -25,9 +25,10 @@ data:
     batch_size: 4
     shuffle: True
     num_workers: 15
-    persistent_workers: True
+    persistent_workers: True 
 
 model: 
+  frame_embedding: tf
   norm_length: ${len:${feature_config.model.norm}}
   no_norm_length: ${len:${feature_config.model.no_norm}}
   token_factor: 0.25
@@ -38,29 +39,26 @@ model:
     lr: 0.0001
     # betas: [0.9, 0.999]
   lr_scheduler: 
-    T_max: 100
-    eta_min: 0.1
+    T_max: 5
+    eta_min: 0.01
   transformer: 
     d_model: 16
-    nhead: 4
+    nhead: 1
     dim_feedforward: 16
   pos: 
-    hidden_dim: 16
+    hidden_dim_1: 16 
+    hidden_dim_2: 64
     output_dim: ${model.features}
   i:   
     input_dim: ${model.features}
-    hidden_dim: 32
+    hidden_dim: 64
     output_dim: 16 
-  o: 
-    input_dim: ${model.features}
-    hidden_dim: 8
-    output_dim: 16
   graph: None
 
 logger: 
   name: NFLogger
   save_dir: ${save_dir}/logger
-  version: '9'
+  version: 'tf_pe'
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
