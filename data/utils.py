@@ -5,11 +5,42 @@ import torch
 import torch.nn.functional as F 
 from torchtyping import TensorType
 
+from torch_geometric.data import Batch
 @dataclass
 class padding:         
     max_src_players: int = 17
     max_tgt_players: int = 17   
     # max_tgt_players: int = 9
+
+def collate_fn_graph(batch):     
+    collated_batch = dict() 
+    data_list_sources, data_list_targets, indices_sources, indices_targets = [], [], [], []
+    source_index, target_index = 0, 0 
+    
+    for b in batch: 
+        source, target, n_frames_source, n_frames_target = b.values()
+
+        data_list_sources.append(source)
+        data_list_targets.append(target)
+        
+        indices_sources += [source_index+j for j in range(int(source.num_nodes/n_frames_source)) for _ in range(n_frames_source)]
+        indices_targets += [target_index+j for j in range(int(target.num_nodes/n_frames_target)) for _ in range(n_frames_target)]
+        
+        source_index += 1
+        target_index += 1 
+
+    sources = Batch.from_data_list(data_list=data_list_sources)
+    targets = Batch.from_data_list(data_list=data_list_targets)
+    
+    collated_batch.update({
+        "sources": sources, 
+        "target": targets,
+        "indices_sources": indices_sources, 
+        "indices_targets": indices_targets     
+    })
+
+    return 
+
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 
     p = padding()
@@ -37,23 +68,23 @@ def collate_fn(batch) -> Dict[str, TensorType['*']]:
         pad_src_players = p.max_src_players - src_players # number of padding entries for the source players 
         pad_tgt_players = p.max_tgt_players - tgt_players # number of padding entries for the target players 
 
-        src = F.pad(src, (0, 0, 0, pad_src_players, 0, 0), "constant", -1) # src_frames, players, features
-        tgt = F.pad(tgt, (0, 0, 0, pad_tgt_players, 0, 0), "constant", -1) # tgt_frames, players, features
-        
-        seq = torch.concat((src, tgt), dim=0) # src_frames + tgt_frames, players, features
+        src = F.pad(src, (0, 0, 0, pad_src_players, 0, 0), "constant", -1) # [src_frames, players, features]
+        tgt = F.pad(tgt, (0, 0, 0, pad_tgt_players, 0, 0), "constant", -1) # [tgt_frames, players, features]
+        tkn = torch.ones(size=([1]+[*src.shape[1:]])) * -2 # [1, players, features]
+
+        seq = torch.concat(tensors=(tkn, src, tkn, tgt, tkn), dim=0) # [1+src_frames+1+tgt_frames+1, players, features]
         pad_seq_frames = max_frames - (src_frames + tgt_frames)
-        seq = F.pad(seq, (0, 0, 0, 0, 0, pad_seq_frames), "constant", -1) # max_frames, players, features
-        
+        seq = F.pad(seq, (0, 0, 0, 0, 0, pad_seq_frames), "constant", -1) # [max_frames+3, players, features]
         seq_list.append(seq)
         
-    seq = torch.stack(tensors=seq_list, dim=1).permute(1, 0, 2, 3) # max_frames, batch, players, features 
-    src_shapes = torch.tensor(src_shapes) 
-    tgt_shapes = torch.tensor(tgt_shapes)
+    seq = torch.stack(tensors=seq_list, dim=1) # max_frames, batch, players, features 
+    src_s = torch.tensor([s[0] for s in src_shapes]) # number of source frames for each element in the sequence 
+    tgt_s = torch.tensor([t[0] for t in tgt_shapes]) # number of target frames for each element in the sequence
     
     return {
-        "sequence": seq, 
-        "src_shapes": src_shapes, 
-        "tgt_shapes": tgt_shapes
+        "seq": seq, 
+        "src_shapes": src_s, 
+        "tgt_shapes": tgt_s
     }
 
 def collate_fn_gap(batch) -> Dict[str, TensorType['*']]: 
