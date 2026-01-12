@@ -3,7 +3,6 @@ import numpy as np
 import polars as pl
 from tqdm import tqdm 
 from omegaconf import OmegaConf
-from numpy.linalg import vector_norm as lavn
 from typing import Dict, List, Tuple, Union
 
 import torch 
@@ -14,7 +13,6 @@ from torch_geometric.data import Data
 def geometric_output_features(groups: np.ndarray) -> np.ndarray: 
     """ A method that augments the two coordinates given in the output to the same 
         number of features as in the input to faciliate later learning
-
     Args:
         groups (np.ndarray): The array containing the x- and y-coordinates from every player of one frame 
 
@@ -24,8 +22,8 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
     x = groups[:, :, 0]
     y = groups[:, :, 1]
     theta = np.arctan2(y, x)
-    x_x = np.pow(x, 2)
-    y_y = np.pow(y, 2)
+    x_x = x*x 
+    y_y = y*y 
     
     features = [
         x, 
@@ -108,12 +106,12 @@ class PlayDataset(Dataset):
             for name, frame in df.group_by(["game_id", "play_id"]): 
                 game, play = name 
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
-                data = self._build_data(df=frame, n_rows=frame.shape[0], data_type=self.data_type, file_type=file_type)
+                data = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
                 self.df_cache[(file, game, play)] = data  
         
         self.item_list = list(self.df_cache.keys())
                             
-    def _get_edge_index(self, n_players: int) -> TensorType["2", "num_edges"]:
+    def _get_edge_index(self, n_players: int) -> TensorType["2", "num_edges"]: # TODO: Review docstring
         """ A method that computes the adjacency matrix of a fully connected graph with n_players nodes, 
             and later converts this matrix to a shape required by torch_geometric. 
                         
@@ -121,32 +119,30 @@ class PlayDataset(Dataset):
             TensorType["2", "num_edges"]: A tensor describing all the present connections between the nodes of the graph. 
             As the graph is modeled to be a fully connected graph, every node is connected with every other, except for itself. 
         """
-        if n_players not in self.edge_index_cache:
-            A = torch.ones((n_players, n_players), dtype=torch.float32) - torch.eye(n_players, dtype=torch.float32)
-            self.edge_index_cache[n_players] = torch.stack(A.nonzero(as_tuple=True), dim=0)
-        return self.edge_index_cache[n_players]                  
-        
-    def _build_data(self, df: pl.DataFrame, n_rows: int, data_type: str, file_type: str) -> Union[List[TensorType] | List[Data]]:
-        n_frames =  df["frame_id"].n_unique()
-        n_players = int(n_rows / n_frames) 
-          
-        if self.data_type == "graph": 
-            edge_index = self._get_edge_index(n_players)
+        if n_players not in self.edge_index_cache: 
+            A = (~torch.eye(n_players, dtype=torch.bool)).to(torch.int64) # TODO: Try out if torch.int8 also works 
+            self.edge_index_cache[n_players] = A 
             
-        groups = df.sort("frame_id").drop("frame_id")   
-        if file_type == "input": 
-            columns = groups.columns
-            columns.remove("x")
-            columns.remove("y")
-            groups = groups.select(["x", "y"]+columns)
+        return self.edge_index_cache[n_players]             
         
+    def _build_data(self, df: pl.DataFrame, rows: int, file_type: str) -> Union[List[Data] | List[TensorType["*"]]]:
+        n_frames =  df["frame_id"].n_unique()
+        n_players = int(rows / n_frames) 
+        groups = df.sort("frame_id").drop("frame_id").select(["x", "y", pl.exclude("x", "y")])  
         groups = groups.to_numpy().reshape(n_frames, n_players, -1)
-             
+        
         if file_type == "output": 
-            groups = geometric_output_features(groups)
-         
+            groups = geometric_output_features(groups)   
+
         groups = torch.tensor(groups, dtype=torch.float32)
-        return groups if data_type == "graph" else groups
+        
+        if self.data_type == "graph": 
+            A = self._get_edge_index(n_players=n_players)
+            edge_index = torch.nonzero(torch.block_diag(*[A for _ in range(n_frames)])).T # this should already be done in the dataloader 
+            x = groups.view(n_frames*n_players, -1)
+            return Data(edge_index=edge_index, x=x) 
+             
+        return groups
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
         """
@@ -195,14 +191,23 @@ class PlayDataset(Dataset):
             in_file = file.replace("output", "input")
             out_file = file
              
-        sources = self.df_cache[(in_file, int(game), int(play))] 
-        targets = self.df_cache[(out_file, int(game), int(play))]            
+        source = self.df_cache[(in_file, int(game), int(play))] 
+        target = self.df_cache[(out_file, int(game), int(play))]  
         
         data = {
-            "source": sources, 
-            "target": targets,
-            "source_shape": sources.shape[:2],
-            "target_shape": targets.shape[:2]
-            }
+                "source": source, 
+                "target": target,
+        }
         
+        if self.data_type == "sequential":
+            data = data | {
+                "source_shape": source.shape[:2],
+                "target_shape": target.shape[:2]
+                }
+        if self.data_type  == "graph":
+            data = data | {
+                "source_shape": len(source), 
+                "target_shape": len(target)
+            }
+
         return data
