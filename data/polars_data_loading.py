@@ -38,7 +38,8 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
         np.sin(theta), 
         np.cos(theta), 
         np.sqrt(x_x+y_y), # every player's distance to the origin 
-        np.ones_like(x) # bias
+        np.ones_like(x), # bias
+        x
         ]
         
     return np.stack(features, axis=-1)
@@ -106,8 +107,13 @@ class PlayDataset(Dataset):
             for name, frame in df.group_by(["game_id", "play_id"]): 
                 game, play = name 
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
-                data = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
-                self.df_cache[(file, game, play)] = data  
+                
+                if self.data_type == "graph":
+                    self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
+
+                else: 
+                    data = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
+                    self.df_cache[(file, game, play)] = data  
         
         self.item_list = list(self.df_cache.keys())
                             
@@ -128,6 +134,7 @@ class PlayDataset(Dataset):
     def _build_data(self, df: pl.DataFrame, rows: int, file_type: str) -> Union[List[Data] | List[TensorType["*"]]]:
         n_frames =  df["frame_id"].n_unique()
         n_players = int(rows / n_frames) 
+        n_features = 0
         groups = df.sort("frame_id").drop("frame_id").select(["x", "y", pl.exclude("x", "y")])  
         groups = groups.to_numpy().reshape(n_frames, n_players, -1)
         
@@ -140,7 +147,8 @@ class PlayDataset(Dataset):
             A = self._get_edge_index(n_players=n_players)
             edge_index = torch.nonzero(torch.block_diag(*[A for _ in range(n_frames)])).T # this should already be done in the dataloader 
             x = groups.view(n_frames*n_players, -1)
-            return Data(edge_index=edge_index, x=x) 
+            n_features = int(x.shape[-1]) 
+            return Data(edge_index=edge_index, x=x), n_frames, n_players, n_features
              
         return groups
     
@@ -190,9 +198,13 @@ class PlayDataset(Dataset):
         else: 
             in_file = file.replace("output", "input")
             out_file = file
-             
-        source = self.df_cache[(in_file, int(game), int(play))] 
-        target = self.df_cache[(out_file, int(game), int(play))]  
+         
+        if self.data_type == "graph": 
+            source, n_frames_source, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))] 
+            target, n_frames_target, n_players_target, n_features_target = self.df_cache[(out_file, int(game), int(play))]  
+        else: 
+            source = self.df_cache[(in_file, int(game), int(play))] 
+            target = self.df_cache[(out_file, int(game), int(play))]  
         
         data = {
                 "source": source, 
@@ -204,10 +216,17 @@ class PlayDataset(Dataset):
                 "source_shape": source.shape[:2],
                 "target_shape": target.shape[:2]
                 }
+            
         if self.data_type  == "graph":
+            assert n_features_source == n_features_target, \
+            ValueError("The number of features in the source graphs does not match the number of features in the target graphs")
+            
             data = data | {
-                "source_shape": len(source), 
-                "target_shape": len(target)
+                "n_frames_source": n_frames_source, 
+                "n_frames_target": n_frames_target,
+                "n_features": n_features_source,  
+                "n_players_source": n_players_source,
+                "n_players_target": n_players_target, 
             }
 
         return data
