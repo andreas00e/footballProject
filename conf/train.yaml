@@ -6,65 +6,120 @@ seed_everything:
 project_dir: /home/ehre/Documents/Projects/footballProject
 save_dir: /home/ehre/Documents/Projects/footballProject/logs
 
-feature_config:
-  loading: ['game_id','play_id', 'nfl_id', 'frame_id']
-  model:
-    norm:  ['absolute_yardline_number', 'player_height', 'player_weight', 'x', 'y', 's', 'a', 'dir', 'o']
-    no_norm: ['player_to_predict', 'play_direction', 'player_position', 'player_side']
-  used: ${add_3:${feature_config.loading}, ${feature_config.model.norm}, ${feature_config.model.no_norm}}
-  not_used: ['player_name', 'num_frames_output', 'ball_land_x', 'ball_land_y']
-  
 data:
-  data_type: sequential # graph
   dataset: 
-    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
+    data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
-  dataloading: 
-    lengths: [0.8, 0.2]
-    batch_size: 4
-    shuffle: True
-    num_workers: 15
-    persistent_workers: True 
+    feature_config: ${data_features}
+    data_type: graph # sequential 
 
+  random_split: 
+    lengths:
+      - 0.8
+      - 0.2
+
+  dataloading: 
+    batch_size: 1
+    shuffle: True
+    num_workers: 0
+    persistent_workers: False 
+    drop_last: True
+
+data_features:
+  loading: # variables that are only relevant during dataloading but are not passed to the model itself
+  - game_id
+  - play_id
+  - nfl_id
+  - frame_id
+  
+  model:
+    norm: # variables that need to be normalized to [0, 1] 
+    - absolute_yardline_number
+    - player_height
+    - player_weight
+    - x 
+    - y
+    - s 
+    - a 
+    - dir 
+    - o
+
+    no_norm: # variables that do not need to be normalized 
+    - player_to_predict
+    - play_direction
+    - player_position,
+    - player_side
+    - num_frames_output
+
+  used: ${add_3:${data_features.loading}, ${data_features.model.norm}, ${data_features.model.no_norm}}
+
+  not_used: # variables present in the dataset, but unused in both data pre-processing and model
+   - player_name
+   - num_frames_output
+   - ball_land_x 
+   - ball_land_y
+    
 model: 
-  frame_embedding: tf
-  norm_length: ${len:${feature_config.model.norm}}
-  no_norm_length: ${len:${feature_config.model.no_norm}}
-  token_factor: 0.25
-  players: 17 
-  features: ${add_2:${model.norm_length}, ${model.no_norm_length}} 
-  batch: ${data.dataloading.batch_size}
+  general: 
+    frame_embedding: add # "tf": attention between all players of one frame # "add": addition of the player embeddings of one frame 
+    norm_length: ${len:${data_features.model.norm}}
+    no_norm_length: ${len:${data_features.model.no_norm}}
+    # token_factor: 0.25
+    features: ${add_2:${model.general.norm_length}, ${model.general.no_norm_length}} 
+
   optimizer: 
     lr: 0.0001
     # betas: [0.9, 0.999]
+
   lr_scheduler: 
-    T_max: 5
+    T_max: 5000 # TODO: Find more reasonable value 
     eta_min: 0.01
+
   transformer: 
-    d_model: 16
-    nhead: 1
-    dim_feedforward: 16
-  pos: 
-    hidden_dim_1: 16 
-    hidden_dim_2: 64
-    output_dim: ${model.features}
-  i:   
-    input_dim: ${model.features}
-    hidden_dim: 64
-    output_dim: 16 
-  graph: None
+    encoder_layer: 
+      d_model: 16
+      nhead: 1
+      dim_feedforward: 16
+    decoder: 
+      num_layers: 1
+    positional_encoding: 
+      d_model: ${model.transformer.encoder_layer}
+      max_len: 100
+
+  # pos: 
+  #   features: 
+  #   - 13 
+  #   - 64 
+  #   - ${model.features}
+
+  player_embedding:
+      - ${model.general.features}
+      - 64
+      - 13
+
+  graph:
+    encoder: 
+      in_channels: ${model.general.features} # number of features
+      hidden_channels: 20 
+      num_layers: 10 
+      out_channels: ${model.transformer.encoder_layer.d_model}
+    decoder: 
+      in_channels: ${model.graph.encoder.out_channels}
+      hidden_channels: 20 
+      num_layers: 10 
+      out_channels: ${model.general.features}
 
 logger: 
-  name: NFLogger
+  name: NFLogger_graph_3
   save_dir: ${save_dir}/logger
-  version: 'tf_pe'
+  version: "graph_setup_3"
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
 
 modelCheckpoint: 
-  dirpath: ${save_dir}/checkpoint_model 
+  dirpath: ${save_dir}/checkpoint_graph_model
   filename: WhatAModelTheBestModelEverybodySaysThat
   monitor: val_loss
   save_top_k: 1 
@@ -76,3 +131,5 @@ profiler:
 trainer:  
   max_epochs: 100
   log_every_n_steps: 5
+
+yaml_file_models: Documents/Projects/footballProject/conf/
