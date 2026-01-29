@@ -39,15 +39,19 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
         np.cos(theta), 
         np.sqrt(x_x+y_y), # every player's distance to the origin 
         np.ones_like(x), # bias
-        x
+        x-x+1
         ]
         
     return np.stack(features, axis=-1)
          
 class PlayDataset(Dataset):     
-    def __init__(self, data_dir: os.PathLike, scaling_path: os.PathLike, pos_path: os.PathLike, feature_config: dict, data_type: str):
+    def __init__(self, data_dir: os.PathLike, scaling_path: os.PathLike, pos_path: os.PathLike, feature_config: dict, data_type: str, mode: str):
+        self.mode = mode
         self.data_dir = data_dir
-        self.files = [file for file in os.listdir(self.data_dir) if file.endswith(".csv")]
+        if os.path.isdir(data_dir): 
+            self.files = [file for file in os.listdir(self.data_dir) if file.endswith(".csv")]
+        elif os.path.isfile(data_dir): 
+            self.files = [data_dir]
         
         self.scaling_conf: OmegaConf = OmegaConf.load(scaling_path)
         self.pos_embedds: Dict[str, float] = self._load_pos_embedds(pos_path) 
@@ -200,11 +204,17 @@ class PlayDataset(Dataset):
             out_file = file
          
         if self.data_type == "graph": 
-            source, n_frames_source, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))] 
-            target, n_frames_target, n_players_target, n_features_target = self.df_cache[(out_file, int(game), int(play))]  
+            source, n_frames_source, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))]
+            if "train" in self.mode:
+                target, n_frames_target, n_players_target, n_features_target = self.df_cache[(out_file, int(game), int(play))]  
+            elif "predict" in self.mode: 
+                target, n_frames_target, n_players_target, n_features_target = [None]*4  
         else: 
             source = self.df_cache[(in_file, int(game), int(play))] 
-            target = self.df_cache[(out_file, int(game), int(play))]  
+            if "train" in self.mode:
+                target = self.df_cache[(out_file, int(game), int(play))]  
+            elif "predict" in self.mode: 
+                target = None
         
         data = {
                 "source": source, 
@@ -216,10 +226,6 @@ class PlayDataset(Dataset):
                 "source_shape": source.shape[:2],
                 "target_shape": target.shape[:2]
                 }
-            
-        if self.data_type  == "graph":
-            assert n_features_source == n_features_target, \
-            ValueError("The number of features in the source graphs does not match the number of features in the target graphs")
             
             data = data | {
                 "n_frames_source": n_frames_source, 

@@ -32,12 +32,11 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
         self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
         
-    def setup(self, stage):
         self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
 
-    def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: # XXX: Ensure that correct tensors are passed to the loss function 
+    def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: 
         loss = self.criterion(y, y_hat)
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
@@ -73,8 +72,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
     
         seq_hat, _ = self._reconstruct_nodes(n_frames_target, n_players_target, condition) # XXX: I also need to know how many nodes should be put out
         seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
-        
-        return seq.x[-seq_node_hat.shape[0]:, :], seq_node_hat
+        return seq.x[-seq_node_hat.shape[0]:, :2], seq_node_hat[:, :2] # We are only interested in the predicted x- and y-coordinates
     
     def training_step(self, batch, batch_idx): 
         y, y_hat = self(**batch)                              
@@ -90,3 +88,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         y, y_hat = self(**batch)                            
         loss = self._loss(y, y_hat, "test")
         return loss 
+    
+    def predict_step(self, batch, batch_idx):
+        y_hat = self(**batch)
+        return 

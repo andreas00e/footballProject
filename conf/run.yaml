@@ -1,3 +1,7 @@
+mode: 
+  # - train
+  - predict
+
 seed_everything:
   seed: 42
   workers: True
@@ -7,12 +11,13 @@ project_dir: /home/ehre/Documents/Projects/footballProject
 save_dir: /home/ehre/Documents/Projects/footballProject/logs
 
 data:
-  dataset: 
+  dataset:  
     data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
     scaling_path: ${project_dir}/conf/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
     feature_config: ${data_features}
     data_type: graph # sequential 
+    mode: ${mode}
 
   random_split: 
     lengths:
@@ -84,7 +89,7 @@ model:
     positional_encoding: 
       d_model: ${model.transformer.encoder_layer.d_model}
       dropout: 0.1
-      max_len: 100
+      max_len: 150
 
   player_embedding:
       - ${model.general.features}
@@ -104,9 +109,9 @@ model:
       out_channels: ${model.general.features}
 
 logger: 
-  name: NFLogger_graph_6
+  name: NFLogger_graph_9
   save_dir: ${save_dir}/logger
-  version: big_transformer
+  version: small_data
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
