@@ -55,7 +55,8 @@ def collate_fn_graph(batch): # TODO: Move this to dataloading
         "n_frames_source": n_frames_source,
         "n_frames_target": n_frames_target, 
         "n_players_source": n_players_source, 
-        "n_players_target": n_players_target
+        "n_players_target": n_players_target, 
+
         }
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 

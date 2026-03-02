@@ -39,7 +39,7 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
         np.cos(theta), 
         np.sqrt(x_x+y_y), # every player's distance to the origin 
         np.ones_like(x), # bias
-        x-x+1
+        np.zeros_like(x)
         ]
         
     return np.stack(features, axis=-1)
@@ -80,7 +80,6 @@ class PlayDataset(Dataset):
         p_bar = tqdm(self.files, bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]", colour="green")
         for file in p_bar:
             p_bar.set_description("Processing: {}".format(os.path.basename(file)))
-            
             file_type = None
             df_path = os.path.join(self.data_dir, file)
             
@@ -111,13 +110,7 @@ class PlayDataset(Dataset):
             for name, frame in df.group_by(["game_id", "play_id"]): 
                 game, play = name 
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
-                
-                if self.data_type == "graph":
-                    self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
-
-                else: 
-                    data = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
-                    self.df_cache[(file, game, play)] = data  
+                self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
         
         self.item_list = list(self.df_cache.keys())
                             
@@ -130,13 +123,15 @@ class PlayDataset(Dataset):
             As the graph is modeled to be a fully connected graph, every node is connected with every other, except for itself. 
         """
         if n_players not in self.edge_index_cache: 
-            A = (~torch.eye(n_players, dtype=torch.bool)).to(torch.int64) # TODO: Try out if torch.int8 also works 
+            A = (~torch.eye(n_players, dtype=torch.bool)).to(torch.int64)
             self.edge_index_cache[n_players] = A 
             
         return self.edge_index_cache[n_players]             
         
     def _build_data(self, df: pl.DataFrame, rows: int, file_type: str) -> Union[List[Data] | List[TensorType["*"]]]:
-        n_frames =  df["frame_id"].n_unique()
+        n_frames = df["frame_id"].n_unique()
+        if file_type == "input":
+            n_frames_out = df["num_frames_output"].unique()            
         n_players = int(rows / n_frames) 
         n_features = 0
         groups = df.sort("frame_id").drop("frame_id").select(["x", "y", pl.exclude("x", "y")])  
@@ -152,7 +147,11 @@ class PlayDataset(Dataset):
             edge_index = torch.nonzero(torch.block_diag(*[A for _ in range(n_frames)])).T # this should already be done in the dataloader 
             x = groups.view(n_frames*n_players, -1)
             n_features = int(x.shape[-1]) 
-            return Data(edge_index=edge_index, x=x), n_frames, n_players, n_features
+            if file_type == "input": 
+                return Data(edge_index=edge_index, x=x), n_frames, n_frames_out, n_players, n_features
+            elif file_type == "output": 
+                return Data(edge_index=edge_index, x=x), n_frames, None, n_players, n_features
+                
              
         return groups
     
@@ -204,11 +203,11 @@ class PlayDataset(Dataset):
             out_file = file
          
         if self.data_type == "graph": 
-            source, n_frames_source, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))]
+            source, n_frames_source, n_frames_target, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))]
             if "train" in self.mode:
-                target, n_frames_target, n_players_target, n_features_target = self.df_cache[(out_file, int(game), int(play))]  
+                target, n_frames_target, _, n_players_target, _ = self.df_cache[(out_file, int(game), int(play))]  
             elif "predict" in self.mode: 
-                target, n_frames_target, n_players_target, n_features_target = [None]*4  
+                target, n_frames_target, _, n_players_target, _ = [None]*4
         else: 
             source = self.df_cache[(in_file, int(game), int(play))] 
             if "train" in self.mode:

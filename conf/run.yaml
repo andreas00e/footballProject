@@ -1,6 +1,6 @@
 mode: 
-  # - train
-  - predict
+  - train
+  # - predict
 
 seed_everything:
   seed: 42
