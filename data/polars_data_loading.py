@@ -129,12 +129,16 @@ class PlayDataset(Dataset):
         return self.edge_index_cache[n_players]             
         
     def _build_data(self, df: pl.DataFrame, rows: int, file_type: str) -> Union[List[Data] | List[TensorType["*"]]]:
-        n_frames = df["frame_id"].n_unique()
-        if file_type == "input":
-            n_frames_out = df["num_frames_output"].unique()            
+        n_frames = df["frame_id"].n_unique()         
         n_players = int(rows / n_frames) 
         n_features = 0
-        groups = df.sort("frame_id").drop("frame_id").select(["x", "y", pl.exclude("x", "y")])  
+        groups = df.sort("frame_id")
+        
+        if file_type == "input":
+            n_frames_out = df["num_frames_output"].unique().item()
+            n_players_out = groups.filter((pl.col("frame_id") == 1) & (pl.col("player_to_predict") == 1.0)).height
+            
+        groups = groups.drop("frame_id").select(["x", "y", pl.exclude("x", "y")])  
         groups = groups.to_numpy().reshape(n_frames, n_players, -1)
         
         if file_type == "output": 
@@ -144,16 +148,17 @@ class PlayDataset(Dataset):
         
         if self.data_type == "graph": 
             A = self._get_edge_index(n_players=n_players)
-            edge_index = torch.nonzero(torch.block_diag(*[A for _ in range(n_frames)])).T # this should already be done in the dataloader 
+            edge_index = torch.nonzero(torch.block_diag(*[A for _ in range(n_frames)])).T
             x = groups.view(n_frames*n_players, -1)
             n_features = int(x.shape[-1]) 
+            
             if file_type == "input": 
-                return Data(edge_index=edge_index, x=x), n_frames, n_frames_out, n_players, n_features
+                return Data(edge_index=edge_index, x=x), n_frames, n_frames_out, n_players, n_players_out, n_features
             elif file_type == "output": 
-                return Data(edge_index=edge_index, x=x), n_frames, None, n_players, n_features
-                
-             
-        return groups
+                return Data(edge_index=edge_index, x=x)
+            
+        elif self.data_type == "sequential": 
+            raise NotImplementedError       
     
     def _normalize(self, df: pl.DataFrame, file_type: str) -> pl.DataFrame:
         """
@@ -193,7 +198,7 @@ class PlayDataset(Dataset):
     def __len__(self): 
         return len(self.item_list)
         
-    def __getitem__(self, index) -> Dict[TensorType, TensorType]:       
+    def __getitem__(self, index) -> Dict[str, TensorType["*"]]:       
         file, game, play = self.item_list[index]
         if "input" in file:
             in_file = file
@@ -203,21 +208,21 @@ class PlayDataset(Dataset):
             out_file = file
          
         if self.data_type == "graph": 
-            source, n_frames_source, n_frames_target, n_players_source, n_features_source = self.df_cache[(in_file, int(game), int(play))]
+            source, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features_source = self.df_cache[(in_file, int(game), int(play))]
             if "train" in self.mode:
-                target, n_frames_target, _, n_players_target, _ = self.df_cache[(out_file, int(game), int(play))]  
+                target = self.df_cache[(out_file, int(game), int(play))] 
             elif "predict" in self.mode: 
-                target, n_frames_target, _, n_players_target, _ = [None]*4
+                target = None
         else: 
             source = self.df_cache[(in_file, int(game), int(play))] 
             if "train" in self.mode:
                 target = self.df_cache[(out_file, int(game), int(play))]  
             elif "predict" in self.mode: 
-                target = None
+                target = None # XXX: Handle None case for graph-structured data 
         
         data = {
                 "source": source, 
-                "target": target,
+                "target": target
         }
         
         if self.data_type == "sequential":
@@ -225,13 +230,13 @@ class PlayDataset(Dataset):
                 "source_shape": source.shape[:2],
                 "target_shape": target.shape[:2]
                 }
-            
+        elif self.data_type == "graph": 
             data = data | {
                 "n_frames_source": n_frames_source, 
                 "n_frames_target": n_frames_target,
-                "n_features": n_features_source,  
                 "n_players_source": n_players_source,
                 "n_players_target": n_players_target, 
+                "n_features": n_features_source,  
             }
 
         return data

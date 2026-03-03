@@ -41,11 +41,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
-    def _reconstruct_nodes(self, n_frames: int, n_players: int, condition: TensorType) -> Tuple[Data, TensorType]:
-        x = condition[-1-n_frames:, :].unsqueeze(0).repeat(n_players, 1, 1).view(n_players*(n_frames+1), -1)
+    def _seq_2_nodes(self, n_frames: int, n_players: int, condition: TensorType) -> Tuple[Data, TensorType]:
+        x = condition[-1-n_frames:, :].repeat_interleave(repeats=n_players, dim=0) # frame-based information for every output player  
         edge_index = torch.cat(tensors=[torch.nonzero(~torch.eye(n_players, dtype=torch.bool, device=self.device))+i*n_players for i in range(n_frames)], dim=0).T
-        batch = torch.tensor([i+j for i in range(n_players) for j in range(n_frames)], dtype=torch.int64, device=self.device)
-        return Data(x=x, edge_index=edge_index), batch
+        return Data(x=x, edge_index=edge_index)
      
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
@@ -65,14 +64,14 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq.x[-n_players_target:, :] = eos_graph
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
-        seq_emb += self.pe.pe[:seq_emb.shape[0], 0, :].squeeze()
+        seq_emb += self.pe.pe[:seq_emb.shape[0], :].squeeze() # TODO: Change to self.pe
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
         condition = self.TransformerDecoder(seq_emb, mask)
     
-        seq_hat, _ = self._reconstruct_nodes(n_frames_target, n_players_target, condition) # XXX: I also need to know how many nodes should be put out
+        seq_hat = self._seq_2_nodes(n_frames_target, n_players_target, condition)
         seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
-        return seq.x[-seq_node_hat.shape[0]:, :2], seq_node_hat[:, :2] # We are only interested in the predicted x- and y-coordinates
+        return seq.x[-seq_node_hat.shape[0]:, :2], seq_node_hat[:, :2] # The only parts of the prediction we are interested in are the predicted x- and y-coordinates
     
     def training_step(self, batch, batch_idx): 
         y, y_hat = self(**batch)                              
@@ -90,5 +89,4 @@ class DecoderOnlyTransformer(pl.LightningModule):
         return loss 
     
     def predict_step(self, batch, batch_idx):
-        y_hat = self(**batch)
-        return 
+        return self(**batch)

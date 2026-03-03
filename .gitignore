@@ -1,5 +1,6 @@
 data/nfl-big-data-bowl-2026-prediction
 logs
+lightning_logs/*
 outputs
 sim
 */__pycache__

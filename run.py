@@ -19,6 +19,7 @@ from data.utils import collate_fn_graph
 from data.polars_data_loading import PlayDataset
 from models.models_copy import DecoderOnlyTransformer
 
+
 @hydra.main(config_path="./conf", config_name="run", version_base=None)
 def main(cfg: DictConfig): 
 
@@ -39,13 +40,14 @@ def main(cfg: DictConfig):
         trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     
     if "predict" in cfg.mode: 
-        cfg.data.dataset.data_dir = "/home/ehre/Documents/Projects/footballProject/data/nfl-big-data-bowl-2026-prediction/test_input.csv"
+        cfg.data.dataset.data_dir = cfg.prediction.test_dir
         dataset = PlayDataset(**cfg.data.dataset)
         dataloader = DataLoader(dataset=dataset, collate_fn=collate_fn_graph)
     
-        model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path="/home/ehre/Documents/Projects/footballProject/logs/checkpoint_graph_model/WhatAModelTheBestModelEverybodySaysThat.ckpt", weights_only=False)
+        model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path=cfg.prediction.checkpoint_path, weights_only=False)
         trainer = L.Trainer(**cfg.trainer)
         out = trainer.predict(model=model, dataloaders=dataloader)
+        print(out)
     
 if __name__ == "__main__": 
     main() 

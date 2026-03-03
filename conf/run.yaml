@@ -1,6 +1,6 @@
 mode: 
-  - train
-  # - predict
+  # - train
+  - predict
 
 seed_everything:
   seed: 42
@@ -109,9 +109,9 @@ model:
       out_channels: ${model.general.features}
 
 logger: 
-  name: NFLogger_graph_9
+  name: NFLogger_graph_1
   save_dir: ${save_dir}/logger
-  version: small_data
+  version: all_data
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
@@ -130,4 +130,6 @@ trainer:
   max_epochs: 100
   log_every_n_steps: 5
 
-yaml_file_models: Documents/Projects/footballProject/conf/
+prediction: 
+  test_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/test_input.csv
+  checkpoint_path: ${modelCheckpoint.dirpath}/${modelCheckpoint.filename}.ckpt
