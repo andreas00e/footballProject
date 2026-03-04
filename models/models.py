@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import torch 
 import torch.nn as nn 
@@ -34,10 +34,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
-        self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
+        self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))     
 
     def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: 
-        loss = self.criterion(y, y_hat)
+        loss = self.criterion(y.x[-y_hat.shape[0]:, :2], y_hat[:, :2])
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
@@ -54,27 +54,30 @@ class DecoderOnlyTransformer(pl.LightningModule):
             "lr_scheduler": lr_scheduler
             }
     
-    def forward(self, seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target): 
+    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) -> Tuple[TensorType["*"], TensorType["*"]]: 
         bos_graph = self.bos_graph.expand(n_players_source, -1)
         sep_graph = self.sep_graph.expand(n_players_source, -1)
         eos_graph = self.eos_graph.expand(n_players_target, -1)
         
-        seq.x[:n_players_source, :] = bos_graph
-        seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph
-        seq.x[-n_players_target:, :] = eos_graph
+        if (not iter) or (iter == 0): # bos and seq token are only added to the sequece
+            seq.x[:n_players_source, :] = bos_graph
+            seq.x[n_players_source*(n_frames_source+1)-1:(n_players_source)*(n_frames_source+2)-1, :] = sep_graph
+
+        if not iter: # eos token is not added to the sequence during prediction 
+            seq.x[-n_players_target:, :] = eos_graph
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
-        seq_emb += self.pe.pe[:seq_emb.shape[0], :].squeeze() # TODO: Change to self.pe
+        seq_emb += self.pe._[:seq_emb.shape[0], :]
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
         condition = self.TransformerDecoder(seq_emb, mask)
     
         seq_hat = self._seq_2_nodes(n_frames_target, n_players_target, condition)
         seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
-        return seq.x[-seq_node_hat.shape[0]:, :2], seq_node_hat[:, :2] # The only parts of the prediction we are interested in are the predicted x- and y-coordinates
+        return seq, seq_node_hat # We are only interested in the predicted x- and y-coordinates
     
     def training_step(self, batch, batch_idx): 
-        y, y_hat = self(**batch)                              
+        y, y_hat = self(**batch) 
         loss = self._loss(y, y_hat, "train")
         return loss 
 
@@ -88,9 +91,16 @@ class DecoderOnlyTransformer(pl.LightningModule):
         loss = self._loss(y, y_hat, "test")
         return loss 
     
-    def predict_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx): # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 
         _, _, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
-        _, y_hat = self(**batch)
-        return y_hat
+
+        
+        for i in range(n_frames_target): 
+            if i == 0: 
+                y, y_hat = self(**batch, iter=i)
+            else: 
+                pass 
+            
+        return y.x[:, :2], y_hat[:, :2]
