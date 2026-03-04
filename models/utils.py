@@ -33,7 +33,7 @@ class PlayerEmbeddingMLP(nn.Module):
     def forward(self, x: TensorType["*"]) -> TensorType["*"]: 
         return self.model(x)
 
-class PositionalEncoding(nn.Module): # XXX: This does not need to be a nn.Module 
+class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: int, max_len: int) -> None:
         """
         Args:
@@ -46,18 +46,14 @@ class PositionalEncoding(nn.Module): # XXX: This does not need to be a nn.Module
         
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
+        pe = torch.zeros(max_len, d_model) 
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("_", pe) 
     
     @property
     def postionalEncoding(self): 
         return self.pe
-
-    def forward(self, x: TensorType["seq_len", "d_model"]) -> TensorType["seq_len", "d_model"]:
-        x = x + self.pe[:x.size(0), :] 
-        return self.dropout(x)
 
 class RMSELoss(nn.Module): 
     def __init__(self): 
