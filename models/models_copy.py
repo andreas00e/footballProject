@@ -89,4 +89,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
         return loss 
     
     def predict_step(self, batch, batch_idx):
-        return self(**batch)
+        _, _, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
+        print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
+              we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
+        _, y_hat = self(**batch)
+        return y_hat

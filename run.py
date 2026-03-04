@@ -42,12 +42,15 @@ def main(cfg: DictConfig):
     if "predict" in cfg.mode: 
         cfg.data.dataset.data_dir = cfg.prediction.test_dir
         dataset = PlayDataset(**cfg.data.dataset)
-        dataloader = DataLoader(dataset=dataset, collate_fn=collate_fn_graph)
-    
+        dataloader = DataLoader(dataset=dataset, num_workers=cfg.data.dataloading.num_workers, collate_fn=collate_fn_graph)
         model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path=cfg.prediction.checkpoint_path, weights_only=False)
         trainer = L.Trainer(**cfg.trainer)
+        
         out = trainer.predict(model=model, dataloaders=dataloader)
-        print(out)
-    
+        
+        for idx, o in enumerate(out): 
+            print(f"Rersult of prediction for step {idx}: \n {o}")
+            print(f"Shape of output number {idx}: {tuple(o.shape)}")
+
 if __name__ == "__main__": 
     main() 
