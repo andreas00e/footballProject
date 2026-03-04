@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Union
+from typing import Dict, List, Tuple
 
 import torch 
 import torch.nn as nn 
@@ -7,170 +7,90 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import lightning as pl
 
-from models.utils import PositionalEncoding
+from torch_geometric.data import Data
 
+from models.utils import GraphModule, PlayerEmbeddingMLP, PositionalEncoding, RMSELoss
+
+        
 class DecoderOnlyTransformer(pl.LightningModule):
-    def __init__(self, model_conf: dict, in_emb: dict):
+    def __init__(self, general: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, player_embedding: List, graph: Dict):
         super().__init__()
         self.save_hyperparameters()
+        self.graph = graph 
         
-        self.model_conf: Dict[str: Union[int, None]] = model_conf 
-        self.frame_embedding = self.model_conf.frame_embedding # "tf": attention between all players of one frame # "add": addition of the player embeddings of one frame 
-        self.seq_token_shape = [1, 1, self.model_conf.players, self.model_conf.features]
-        self.batch_size = self.model_conf.batch
-        self.io_last_dim = int(self.model_conf.i.output_dim * self.model_conf.token_factor)
+        self.criterion = RMSELoss()
         
-        in_emb["input_dim"] += self.io_last_dim # TODO: Move to conf
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.frame_embedding = general.frame_embedding 
+        
+        self.SeqEmb = PlayerEmbeddingMLP(player_embedding)
+        self.GraphEncoder = GraphModule(self.graph.encoder)
+        self.GraphDecoder = GraphModule(self.graph.decoder)
+        
+        self.pe = PositionalEncoding(**transformer.positional_encoding)
+        self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
+        self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
+        
+        self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
+        self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
+        self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
 
-        self.criterion = nn.MSELoss() # TODO: Change self.criterion to RMSE
-        
-        self.seq_emb = PlayerEmbeddingMLP(**in_emb)
-        self.frame_emb = FrameEmbeddingTF(d_model=16, nhead=1, dim_feedforward=16, num_layers=1)
-        self.encoder_layer = nn.TransformerEncoderLayer(**self.model_conf.transformer) # TODO: change d_model and dim_feedforward 
-        self.decoder = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
-        self.pe = PositionalEncoding(d_model=16, max_len=150) # TODO: d_model, and max_len to conf
-        self.pos = PosMLP(self.model_conf)   
-        
-    def on_fit_start(self):
-        self.register_buffer(name="bos", tensor=torch.rand(size=self.seq_token_shape, dtype=torch.float32, device=self.device)) # begin of sequence token ([0, 1))
-        self.bos = self.bos.expand([-1, self.batch_size, -1, -1]) # [1, batch, players, features] 
-        self.register_buffer(name="sep", tensor=torch.rand(size=self.seq_token_shape, dtype=torch.float32, device=self.device)) # seperator token ([0, 1))
-        self.sep = self.sep.expand([-1, self.batch_size, -1, -1]) # [1, batch, players, features] 
-        self.register_buffer(name="eos", tensor=torch.rand(size=self.seq_token_shape, dtype=torch.float32, device=self.device)) # end of sequence token ([0, 1))
-        self.eos = self.eos.expand([-1, self.batch_size, -1, -1]) # [1, batch, players, features] 
-
-        self.register_buffer(name="ins", tensor=torch.rand(size=[1,]*3+[self.io_last_dim], dtype=torch.float32, device=self.device)) # input identifier token   
-        self.ins = self.ins.expand([-1, self.batch_size, self.model_conf.players, -1]) # [1, batch, players, features+self.io_last_dim] 
-        self.register_buffer(name="outs", tensor=torch.rand(size=[1]*3+[self.io_last_dim], dtype=torch.float32, device=self.device)) # output identifier token    
-        self.outs = self.outs.expand([-1, self.batch_size, self.model_conf.players, -1]) # [1, batch, players, features+self.io_last_dim] 
-
+    def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: 
+        loss = self.criterion(y, y_hat)
+        self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
+        return loss
+    
+    def _seq_2_nodes(self, n_frames: int, n_players: int, condition: TensorType) -> Tuple[Data, TensorType]:
+        x = condition[-1-n_frames:, :].repeat_interleave(repeats=n_players, dim=0) # frame-based information for every output player  
+        edge_index = torch.cat(tensors=[torch.nonzero(~torch.eye(n_players, dtype=torch.bool, device=self.device))+i*n_players for i in range(n_frames)], dim=0).T
+        return Data(x=x, edge_index=edge_index)
+     
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.model_conf.optimizer.lr)
-        lr_scheduler = CosineAnnealingLR(optimizer, T_max=self.model_conf.lr_scheduler.T_max, eta_min=self.model_conf.lr_scheduler.eta_min)
+        optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
+        lr_scheduler = CosineAnnealingLR(optimizer, **self.lr_scheduler)
         return {
             "optimizer": optimizer, 
             "lr_scheduler": lr_scheduler
             }
-
-    def _loss(self, y, y_hat, mode: str): # y: [1+src_frames+1+tgt_frames, ...], y_hat:  # [src_frames+1+tgt_frames+1, ...]
-        loss = self.criterion(y[:-1, ...], y_hat[1:, ...])        
-        self.log_dict({'{}_loss'.format(mode): loss}, batch_size=y.shape[1], prog_bar=True, on_step=True, on_epoch=True)
-        return loss
     
-    def _prepare_tokens(self, src: TensorType["1", "batch_size", "1", "1"], tgt: TensorType["1", "batch_size", "1", "1"]) \
-                        -> Tuple[TensorType["1+srcframes+1", "batch_size", "1", "1"], TensorType["tgt_frames+1", "batch_size", "1", "1"]]:
-        """
-        Method adjusting the shape of the tokens marking the input as input, and the output as output
-
-        Returns:
-            Tuple[TensorType["*"], TensorType["*"]: The adjusted input and output tokens
-        """
-        ins = self.ins.expand([src.shape[0]+2]+[-1]*3) # [1+src_frames+1, batch, players, emb_features] 
-        outs = self.outs.expand([tgt.shape[0]+1]+[-1]*3) # [tgt_frames+1, batch, players, emb_features] 
-        return ins, outs
-
-    def _prepare_sequence(self, batch: TensorType["*"]) -> TensorType["*"]: 
-        """ 
-        Method concatenating the input sequence, the output sequence, and the sequence tokens ("bos", "sep", "eos")
-
-        Returns:
-            TensorType['*']: Concatenated sequence consisting of the input sequence, the output sequence, and the sequence tokens ("bos", "sep", "eos")
-        """
-        src = batch["source"] # [src_frames, batch, players, features]
-        tgt =  batch["target"] # [tgt_frames, batch, players, features]
+    def forward(self, seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target): 
+        bos_graph = self.bos_graph.expand(n_players_source, -1)
+        sep_graph = self.sep_graph.expand(n_players_source, -1)
+        eos_graph = self.eos_graph.expand(n_players_target, -1)
         
-        ins, outs = self._prepare_tokens(src=src, tgt=tgt)
+        seq.x[:n_players_source, :] = bos_graph
+        seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph
+        seq.x[-n_players_target:, :] = eos_graph
+            
+        seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
+        seq_emb += self.pe.pe[:seq_emb.shape[0], :].squeeze() # TODO: Change to self.pe
         
-        seq = torch.concat(tensors=(self.bos, src, self.sep, tgt, self.eos), dim=0) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        return seq, ins, outs 
+        mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
+        condition = self.TransformerDecoder(seq_emb, mask)
     
-    def forward(self, seq: TensorType, ins: TensorType, outs: TensorType): 
-        seq_mask = (seq == -1).all(-1) # [1+src_frames+1+tgt_frames+1, batch, players] # XXX: all() or any()? 
-        seq = torch.concat(tensors=(seq, torch.concat(tensors=(ins, outs), dim=0)), dim=-1) # [1+src_frames+1+tgt_frames+1, batch, players, features+io_last_dim]
-        
-        seq_emb = self.seq_emb(seq) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
-        seq_emb = seq_emb * ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_emb.shape[-1]])
-        if self.frame_embedding == "add":
-            seq_emb = seq_emb.sum(-2).squeeze() # [1+src_frames+1+tgt_frames+1, batch, emb_features] 
-        elif self.frame_embedding == "tf": 
-            seq_emb = seq_emb.view(-1, seq_emb.shape[2], seq_emb.shape[3]).permute(1, 0, 2) # [players, (1+src_frames+1+tgt_frames+1) * batch, emb_features]
-            src_key_padding_mask = seq_mask.view(-1, seq_mask.shape[-1])
-            seq_emb = self.frame_emb(seq_emb, src_key_padding_mask=src_key_padding_mask) # [players, (1+src_frames+1+tgt_frames+1) * batch, emb_features]
-            seq_emb = seq_emb.permute(1, 0, 2).view([*(seq.shape[:-1])]+[-1]).sum(-2).squeeze()
-        
-        pe = self.pe.postionalEncoding # TODO: Rename # [seq_len, d_model] -> [1+src_frames+1+tgt_frames+1, batch, emb_features]
-        pe = pe.expand([-1, seq_emb.shape[1], -1])[:seq_emb.shape[0], ...] # [1+src_frames+1+tgt_frames+1, batch, emb_features]
-        seq_emb = seq_emb + pe * ~seq_mask.all(-1).unsqueeze(-1).expand([-1,]*2+[seq_emb.shape[-1]])
-             
-        mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=self.device, dtype=seq_emb.dtype)
-        src_key_padding_mask = seq_mask.all(-1).permute(1, 0).to(torch.float32) # [batch, 1+src_frames+1+tgt_frames+1]
-        
-        seq_hat = self.decoder(src=seq_emb, mask=mask, src_key_padding_mask=src_key_padding_mask) # [1+src_frames+1+tgt_frames+1, batch, emb_features]
-        seq_hat = seq_hat.unsqueeze(-2).expand([-1]*2+[seq.shape[-2]]+[-1]) # [1+src_frames+1+tgt_frames+1, batch, players, emb_features]
-        seq_hat = self.pos(seq_hat) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        
-        seq = seq * ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq.shape[-1]]) # mask out frame and player paddings
-        seq = seq[..., :-self.io_last_dim]
-        seq_hat = seq_hat *  ~seq_mask.unsqueeze(-1).expand([-1,]*3+[seq_hat.shape[-1]]) # mask out frame and player paddings 
-        
-        return seq, seq_hat
+        seq_hat = self._seq_2_nodes(n_frames_target, n_players_target, condition)
+        seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
+        return seq.x[-seq_node_hat.shape[0]:, :2], seq_node_hat[:, :2] # The only parts of the prediction we are interested in are the predicted x- and y-coordinates
     
     def training_step(self, batch, batch_idx): 
-        y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                    
+        y, y_hat = self(**batch)                              
         loss = self._loss(y, y_hat, "train")
         return loss 
 
     def validation_step(self, batch, batch_idx): 
-        y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                       
+        y, y_hat = self(**batch)                              
         loss = self._loss(y, y_hat, "val")
         return loss 
 
     def test_step(self, batch, batch_idx): 
-        y, ins, outs = self._prepare_sequence(batch) # [1+src_frames+1+tgt_frames+1, batch, players, features]
-        y, y_hat = self(y, ins, outs) # [1+src_frames+1+tgt_frames+1, batch, players, features]                                                         
+        y, y_hat = self(**batch)                            
         loss = self._loss(y, y_hat, "test")
         return loss 
     
-class PlayerEmbeddingMLP(nn.Module): 
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
-        super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim 
-        
-        self.model = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.ReLU(), 
-            nn.Linear(self.hidden_dim, self.hidden_dim), 
-            nn.ReLU(), 
-            nn.Linear(self.hidden_dim, self.output_dim), 
-        )
-     
-    def forward(self, x): 
-        return self.model(x)
-
-class PosMLP(nn.Module): 
-    def __init__(self, model_conf: dict):
-        super().__init__()
-        
-        self.feature = nn.Sequential( 
-            nn.Linear(model_conf.i.output_dim, model_conf.pos.hidden_dim_1),
-            nn.ReLU(),
-            nn.Linear(model_conf.pos.hidden_dim_1, model_conf.pos.hidden_dim_2), 
-            nn.ReLU(), 
-            nn.Linear(model_conf.pos.hidden_dim_2, model_conf.pos.output_dim),
-        )
-    
-    def forward(self, x): 
-        return self.feature(x)
-    
-class FrameEmbeddingTF(nn.Module): 
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int, num_layers: int) -> None:
-        super().__init__()
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward) # TODO: Move parameters to conf
-        self.transformerEncoder = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=num_layers) # TODO: Move "layers" to conf
-    
-    def forward(self, x: TensorType["*"], src_key_padding_mask: TensorType["*"]) -> TensorType["*"]: 
-        return self.transformerEncoder(x, src_key_padding_mask=src_key_padding_mask)
+    def predict_step(self, batch, batch_idx):
+        _, _, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
+        print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
+              we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
+        _, y_hat = self(**batch)
+        return y_hat

@@ -17,7 +17,7 @@ SLURMEnvironment.detect = lambda: False # suppress SLURM warning
 
 from data.utils import collate_fn_graph
 from data.polars_data_loading import PlayDataset
-from models.models_copy import DecoderOnlyTransformer
+from models.models import DecoderOnlyTransformer
 
 
 @hydra.main(config_path="./conf", config_name="run", version_base=None)
