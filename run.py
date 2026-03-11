@@ -23,7 +23,7 @@ from models.models import DecoderOnlyTransformer
 @hydra.main(config_path="./conf", config_name="run", version_base=None)
 def main(cfg: DictConfig): 
 
-    if "train" in cfg.mode: 
+    if cfg.mode == "train": 
         L.seed_everything(**cfg.seed_everything)
         dataset = PlayDataset(**cfg.data.dataset)
         train_dataset, val_dataset = random_split(dataset=dataset, lengths=cfg.data.random_split.lengths)
@@ -39,7 +39,7 @@ def main(cfg: DictConfig):
         
         trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     
-    if "predict" in cfg.mode: 
+    if cfg.mode == "predict": 
         cfg.data.dataset.data_dir = cfg.prediction.test_dir
         dataset = PlayDataset(**cfg.data.dataset)
         dataloader = DataLoader(dataset=dataset, num_workers=cfg.data.dataloading.num_workers, collate_fn=collate_fn_graph)
@@ -48,9 +48,12 @@ def main(cfg: DictConfig):
         
         out = trainer.predict(model=model, dataloaders=dataloader)
         
-        for idx, o in enumerate(out): 
-            print(f"Rersult of prediction for step {idx}: \n {o}")
-            print(f"Shape of output number {idx}: {tuple(o.shape)}")
+        for idx, (y, y_hat) in enumerate(out): 
+            print(f"Input at step {idx}: \n {y}")
+            print(f"Shape of input ate step {idx}: {y.shape}")
+            print("---------------------------------------------")
+            print(f"Output at step {idx}: \n {y_hat}")
+            print(f"Shape of output at step {idx}: {y_hat.shape}")
 
 if __name__ == "__main__": 
     main() 
