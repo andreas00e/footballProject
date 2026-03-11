@@ -20,7 +20,7 @@ from data.polars_data_loading import PlayDataset
 from models.models import DecoderOnlyTransformer
 
 
-@hydra.main(config_path="./conf", config_name="run", version_base=None)
+@hydra.main(config_path="./confs", config_name="run", version_base=None)
 def main(cfg: DictConfig): 
 
     if cfg.mode == "train": 

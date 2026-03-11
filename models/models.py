@@ -41,11 +41,12 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
-    def _seq_2_nodes(self, seq: TensorType["*"], condition: TensorType["*"], n_frames: int, n_players: int) -> Tuple[Data, TensorType]:
-        x = condition[-1-n_frames:, :].repeat_interleave(repeats=n_players, dim=0)
-        x[:, :-2] = x[:, :-2] + seq[-1-n_frames, :] 
-        edge_index = torch.cat(tensors=[torch.nonzero(~torch.eye(n_players, dtype=torch.bool, device=self.device))+i*n_players for i in range(n_frames)], dim=0).T
-        return Data(x=x, edge_index=edge_index)
+    def _seq_2_nodes(self, seq: TensorType["*"], condition: TensorType["*"], n_frames_source: int, n_players_source: int, n_players_target: int) -> Tuple[Data, TensorType]:
+        x_input = condition[:n_frames_source+2, :].repeat_interleave(repeats=n_players_source, dim=0)
+        x_output = condition[n_frames_source+2:, :].repeat_interleave(repeats=n_players_target, dim=0)
+        x = torch.concat(tensors=(x_input, x_output), dim=0)
+        x += seq
+        return x
      
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
@@ -76,8 +77,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
         if iter: 
             n_frames_target = iter
             
-        seq_hat = self._seq_2_nodes(seq.x, condition, n_frames_target, n_players_target)
-        seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
+        seq_hat_x = self._seq_2_nodes(seq.x, condition, n_frames_source, n_players_source, n_players_target)
+        seq_node_hat = self.GraphDecoder(seq_hat_x, seq.edge_index, batch=None)
         return seq, seq_node_hat # We are only interested in the predicted x- and y-coordinates
     
     def training_step(self, batch, batch_idx): 
