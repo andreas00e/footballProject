@@ -41,8 +41,9 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
-    def _seq_2_nodes(self, n_frames: int, n_players: int, condition: TensorType) -> Tuple[Data, TensorType]:
-        x = condition[-1-n_frames:, :].repeat_interleave(repeats=n_players, dim=0) # frame-based information for every output player  
+    def _seq_2_nodes(self, seq: TensorType["*"], condition: TensorType["*"], n_frames: int, n_players: int) -> Tuple[Data, TensorType]:
+        x = condition[-1-n_frames:, :].repeat_interleave(repeats=n_players, dim=0)
+        x[:, :-2] = x[:, :-2] + seq[-1-n_frames, :] 
         edge_index = torch.cat(tensors=[torch.nonzero(~torch.eye(n_players, dtype=torch.bool, device=self.device))+i*n_players for i in range(n_frames)], dim=0).T
         return Data(x=x, edge_index=edge_index)
      
@@ -59,20 +60,23 @@ class DecoderOnlyTransformer(pl.LightningModule):
         sep_graph = self.sep_graph.expand(n_players_source, -1)
         eos_graph = self.eos_graph.expand(n_players_target, -1)
         
-        if (not iter) or (iter == 0): # bos and seq token are only added to the sequece
+        if iter is None or iter == 1: # bos and seq token are only added to the sequence
             seq.x[:n_players_source, :] = bos_graph
-            seq.x[n_players_source*(n_frames_source+1)-1:(n_players_source)*(n_frames_source+2)-1, :] = sep_graph
+            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph
 
-        if not iter: # eos token is not added to the sequence during prediction 
-            seq.x[-n_players_target:, :] = eos_graph
+        if iter is None: 
+            seq.x[-n_players_target:, :] = eos_graph # eos token is not added to the sequence during prediction 
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
-        seq_emb += self.pe._[:seq_emb.shape[0], :]
+        seq_emb += self.pe._[:seq_emb.shape[0], :] # TODO: Change positional encoding so that every node of one frame has the same positional encoding 
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
         condition = self.TransformerDecoder(seq_emb, mask)
-    
-        seq_hat = self._seq_2_nodes(n_frames_target, n_players_target, condition)
+        
+        if iter: 
+            n_frames_target = iter
+            
+        seq_hat = self._seq_2_nodes(seq.x, condition, n_frames_target, n_players_target)
         seq_node_hat = self.GraphDecoder(seq_hat.x, seq_hat.edge_index, batch=None)
         return seq, seq_node_hat # We are only interested in the predicted x- and y-coordinates
     
@@ -99,7 +103,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         for i in range(n_frames_target): 
             if i == 0: 
-                y, y_hat = self(**batch, iter=i)
+                y, y_hat = self(**batch, iter=i+1)
             else: 
                 pass 
             
