@@ -68,7 +68,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
             seq.x[-n_players_target:, :] = eos_graph # eos token is not added to the sequence during prediction 
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
-        seq_emb += self.pe._[:seq_emb.shape[0], :] # TODO: Change positional encoding so that every node of one frame has the same positional encoding 
+        seq_emb += self.pe._[:seq_emb.shape[0], :] 
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
         condition = self.TransformerDecoder(seq_emb, mask)
