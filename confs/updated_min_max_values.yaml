@@ -1,0 +1,27 @@
+player_height:
+  min: 167.64000000000001
+  max: 205.74
+player_weight:
+  min: 153.0
+  max: 358.0
+s:
+  min: 0.0
+  max: 12.53
+a:
+  min: 0.0
+  max: 17.12
+absolute_yardline_number:
+  min: 0.0
+  max: 100.0
+x:
+  min: 0.0
+  max: 120.0
+'y':
+  min: 0.0
+  max: 53.3
+o:
+  min: 0.0
+  max: 360.0
+dir:
+  min: 0.0
+  max: 360.0

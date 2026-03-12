@@ -1,5 +1,5 @@
 import math
-from typing import List, Union
+from typing import Dict, List, Union
 
 import torch
 import torch.nn as nn 
@@ -12,7 +12,19 @@ from torch_geometric.nn import global_mean_pool
 
 def list2sequential(features: List) -> List: 
     return [layer for i in range(len(features)-1) for layer in (nn.Linear(features[i], features[i+1]), nn.ReLU())][:-1]
+
+class TransformerDecoder(nn.Module):
+    def __init__(self, transformer: Dict) -> None:
+        super().__init__() 
+        self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
+        self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
+        self.fc = nn.Sequential(*list2sequential(transformer.regression_head))
     
+    def forward(self, x: TensorType["*"], mask: TensorType["*"]) -> TensorType["*"]: 
+        x = self.TransformerDecoder(x, mask)
+        x = self.fc(x)
+        return x 
+
 class GraphModule(nn.Module): 
     def __init__(self, args: dict) -> None:
         super().__init__()

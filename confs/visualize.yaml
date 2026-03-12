@@ -1,0 +1,23 @@
+data_dir: data/nfl-big-data-bowl-2026-prediction/train
+background_image: data/images/field.jpeg
+
+feature_config:
+  - game_id
+  - play_id
+  - player_to_predict
+  - nfl_id
+  - frame_id
+  - play_direction
+  - player_name
+  - player_position
+  - player_side
+  - x
+  - y
+  - s
+  - a
+  - dir
+  - o
+
+week: 2 # from week 1 to week 18 
+game_id: 2023091700 # search in csv files for game that contains the play that should be visualized
+play_id: 855 # search in csv files for play that should be visualized

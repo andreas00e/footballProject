@@ -9,7 +9,7 @@ import lightning as pl
 
 from torch_geometric.data import Data
 
-from models.utils import GraphModule, PlayerEmbeddingMLP, PositionalEncoding, RMSELoss
+from models.utils import TransformerDecoder, GraphModule, PlayerEmbeddingMLP, PositionalEncoding, RMSELoss
 
         
 class DecoderOnlyTransformer(pl.LightningModule):
@@ -24,13 +24,12 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.lr_scheduler = lr_scheduler
         self.frame_embedding = general.frame_embedding 
         
-        self.SeqEmb = PlayerEmbeddingMLP(player_embedding)
+        self.SeqEmb = PlayerEmbeddingMLP(player_embedding) # Needed for non-graph frame embedding, e.g. sequential # TODO: Get rid of that for the moment, as we do not need it 
         self.GraphEncoder = GraphModule(self.graph.encoder)
         self.GraphDecoder = GraphModule(self.graph.decoder)
         
         self.pe = PositionalEncoding(**transformer.positional_encoding)
-        self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
-        self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
+        self.TransformerDecoder = TransformerDecoder(transformer)
         
         self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))

@@ -1,0 +1,29 @@
+# previously unkown values
+player_height: # player height in cm (numeric)
+  min: ~
+  max: ~
+player_weight: # player weight in kg (numeric)
+  min: ~
+  max: ~
+s: # speed of player in yards/sec (numeric)
+  min: ~
+  max: ~
+a: # accerleration of player in yards/sec^2 (numeric)
+  min: ~
+  max: ~
+# previously known values: https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/dataabsol
+absolute_yardline_number: 
+  min: 0.0 
+  max: 100.0
+x: # x-position of player (numeric)
+  min: 0.0
+  max: 120.0
+y: # y-position of player (numeric)
+  min: 0.0
+  max: 53.3
+o: # orientation of player (deg)
+  min: 0.0 
+  max: 360.0
+dir: # angle of player motion (deg)
+  min: 0.0 
+  max: 360.0
