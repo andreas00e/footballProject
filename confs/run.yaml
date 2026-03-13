@@ -41,6 +41,7 @@ data_features:
     - absolute_yardline_number
     - player_height
     - player_weight
+    - player_position
     - x 
     - y
     - s 
@@ -51,7 +52,6 @@ data_features:
     no_norm: # variables that do not need to be normalized 
     - player_to_predict
     - play_direction
-    - player_position
     - player_side
     - num_frames_output
 
@@ -79,7 +79,7 @@ model:
 
   transformer: 
     encoder_layer: 
-      d_model: 32
+      d_model: 16
       nhead: 8
       dim_feedforward: ${model.general.features} # number of input features
     decoder: 

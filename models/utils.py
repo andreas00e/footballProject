@@ -19,11 +19,10 @@ class TransformerDecoder(nn.Module):
         self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
         self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
         self.fc = nn.Sequential(*list2sequential(transformer.regression_head))
+        self.norm = nn.Sigmoid()
     
     def forward(self, x: TensorType["*"], mask: TensorType["*"]) -> TensorType["*"]: 
-        x = self.TransformerDecoder(x, mask)
-        x = self.fc(x)
-        return x 
+        return self.norm(self.fc(self.TransformerDecoder(x, mask)))
 
 class GraphModule(nn.Module): 
     def __init__(self, args: dict) -> None:

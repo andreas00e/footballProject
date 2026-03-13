@@ -45,7 +45,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         x_output = condition[n_frames_source+2:, :].repeat_interleave(repeats=n_players_target, dim=0)
         x = torch.concat(tensors=(x_input, x_output), dim=0)
         x += seq
-        return x
+        return x 
      
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
@@ -99,7 +99,6 @@ class DecoderOnlyTransformer(pl.LightningModule):
         _, _, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
-
         
         for i in range(n_frames_target): 
             if i == 0: 
