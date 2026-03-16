@@ -100,19 +100,19 @@ model:
   graph:
     encoder: 
       in_channels: ${model.general.features} 
-      hidden_channels: 20 
-      num_layers: 10 
+      hidden_channels: 10 
+      num_layers: 5
       out_channels: ${model.transformer.encoder_layer.d_model}
     decoder: 
-      in_channels: ${model.general.features} # ${model.graph.encoder.out_channels}
-      hidden_channels: 20 
-      num_layers: 10 
+      in_channels: ${add_2:${model.transformer.encoder_layer.dim_feedforward}, 2} # ${model.graph.encoder.out_channels}
+      hidden_channels: 5
+      num_layers: 2
       out_channels: ${model.general.features}
 
 logger: 
   name: NFLogger_graph
   save_dir: ${save_dir}/logger
-  version: small_data
+  version: small_data_new_02
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger

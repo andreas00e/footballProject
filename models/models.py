@@ -44,7 +44,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
         x_input = condition[:n_frames_source+2, :].repeat_interleave(repeats=n_players_source, dim=0)
         x_output = condition[n_frames_source+2:, :].repeat_interleave(repeats=n_players_target, dim=0)
         x = torch.concat(tensors=(x_input, x_output), dim=0)
-        x += seq
+        x = torch.concat(tensors=(seq[:, :2], x), dim=-1)
+        # x += seq/torch.tensor([10.0]).to(self.device)
         return x 
      
     def configure_optimizers(self):
