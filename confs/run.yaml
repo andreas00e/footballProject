@@ -68,7 +68,7 @@ model:
     frame_embedding: add # "tf": attention between all players of one frame # "add": addition of the player embeddings of one frame 
     norm_length: ${len:${data_features.model.norm}}
     no_norm_length: ${len:${data_features.model.no_norm}}
-    features: ${add_2:${model.general.norm_length}, ${model.general.no_norm_length}} 
+    features: ${sub_2:${add_2:${model.general.norm_length},${model.general.no_norm_length}},1}
 
   optimizer: 
     lr: 0.0001

@@ -2,6 +2,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("len", lambda x: len(x))
 OmegaConf.register_new_resolver("add_2", lambda x, y: x + y)
+OmegaConf.register_new_resolver("sub_2", lambda x, y: x - y)
 OmegaConf.register_new_resolver("add_3", lambda x, y, z: x + y + z)
 
 import torch

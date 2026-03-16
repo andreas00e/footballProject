@@ -42,7 +42,7 @@ def collate_fn_graph(batch): # TODO: Move this to dataloading
         else: 
             edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index), dim=-1) 
         
-        seq = Data(x=x, edge_index=edge_index)
+        seq = Data(x=x[:, :-1], edge_index=edge_index) # number of output frames is not passed to model 
         
         source_indices += [source_index+j for j in range(n_frames_source+2) for _ in range(n_players_source)] # include bos, and sep token
         source_index += 1
