@@ -33,10 +33,18 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
-        self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))     
+        self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))  
+        
+        self.temp = torch.nn.Parameter(data=torch.rand(size=(1,), device=self.device))
+        
+        self.min = torch.tensor([0.0], device=self.device)
+        self.max = torch.tensor([0.0], device=self.device)
 
+        
     def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: 
-        loss = self.criterion(y.x[-y_hat.shape[0]:, :2], y_hat[:, :2])
+        loss = self.criterion(y.x, y_hat) # only the x- and y-ćoordinates are considered for the loss 
+        # loss = self.criterion(y.x[:self.eos_graph.shape[0], :], y_hat[self.bos_graph.shape[0]:, :]) # every feature is considered for the loss
+        
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
@@ -44,8 +52,11 @@ class DecoderOnlyTransformer(pl.LightningModule):
         x_input = condition[:n_frames_source+2, :].repeat_interleave(repeats=n_players_source, dim=0)
         x_output = condition[n_frames_source+2:, :].repeat_interleave(repeats=n_players_target, dim=0)
         x = torch.concat(tensors=(x_input, x_output), dim=0)
-        x = torch.concat(tensors=(seq[:, :2], x), dim=-1)
-        # x += seq/torch.tensor([10.0]).to(self.device)
+        #  = torch.concat(tensors=(seq[:, :2], x), dim=-1)
+        x = torch.clamp(input=(x+seq*self.temp), min=0.0, max=1.0)
+        
+        if not self.trainer.predicting: 
+            self.log_dict({"temperature": self.temp}, prog_bar=False, batch_size=1)
         return x 
      
     def configure_optimizers(self):
@@ -61,11 +72,11 @@ class DecoderOnlyTransformer(pl.LightningModule):
         sep_graph = self.sep_graph.expand(n_players_source, -1)
         eos_graph = self.eos_graph.expand(n_players_target, -1)
         
-        if iter is None or iter == 1: # bos and seq token are only added to the sequence
-            seq.x[:n_players_source, :] = bos_graph
-            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph
+        if iter is None or iter == 1: 
+            seq.x[:n_players_source, :] = bos_graph # bos token is appended to the start of the sequence 
+            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph # sep token is appended to the end of the input sequence 
 
-        if iter is None: 
+        if iter is None: # only during training 
             seq.x[-n_players_target:, :] = eos_graph # eos token is not added to the sequence during prediction 
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
@@ -76,10 +87,11 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         if iter: 
             n_frames_target = iter
-            
+                   
         seq_hat_x = self._seq_2_nodes(seq.x, condition, n_frames_source, n_players_source, n_players_target)
+                
         seq_node_hat = self.GraphDecoder(seq_hat_x, seq.edge_index, batch=None)
-        return seq, seq_node_hat # We are only interested in the predicted x- and y-coordinates
+        return seq, seq_node_hat
     
     def training_step(self, batch, batch_idx): 
         y, y_hat = self(**batch) 
@@ -107,4 +119,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
             else: 
                 pass 
             
+        print(f"<bos> token: {self.bos_graph}")   
+        print(f"<sep> token: {self.sep_graph}") 
+        print(f"<eos> token: {self.eos_graph}")     
+        
         return y.x[:, :2], y_hat[:, :2]
