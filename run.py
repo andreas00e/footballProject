@@ -36,7 +36,7 @@ def main(cfg: DictConfig):
         logger = WandbLogger(**cfg.logger)
         modelCheckpoint = ModelCheckpoint(**cfg.modelCheckpoint)
         profiler = SimpleProfiler(**cfg.profiler)
-        trainer = L.Trainer(accelerator="cpu", devices=1, logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
+        trainer = L.Trainer(logger=logger, callbacks=[modelCheckpoint], profiler=profiler, **cfg.trainer)
         
         trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     
