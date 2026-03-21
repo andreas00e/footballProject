@@ -35,28 +35,15 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))  
         
-        self.temp = torch.nn.Parameter(data=torch.rand(size=(1,), device=self.device))
-        
-        self.min = torch.tensor([0.0], device=self.device)
-        self.max = torch.tensor([0.0], device=self.device)
-
-        
-    def _loss(self, y: TensorType["*"], y_hat: TensorType["*"], mode: str) -> TensorType["*"]: 
-        loss = self.criterion(y.x, y_hat) # only the x- and y-ćoordinates are considered for the loss 
-        # loss = self.criterion(y.x[:self.eos_graph.shape[0], :], y_hat[self.bos_graph.shape[0]:, :]) # every feature is considered for the loss
-        
+    def _loss(self, y: Data, y_hat: TensorType["*"], n_frames_target: int, n_players_target: int, mode: str) -> TensorType["*"]: 
+        loss = self.criterion(y.x[-(n_frames_target+2)*n_players_target:-n_players_target, :2], y_hat[-(n_frames_target+1)*n_players_target:, :2]) # We are only interested in predicting the x- and y- coordintates 
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
     
     def _seq_2_nodes(self, seq: TensorType["*"], condition: TensorType["*"], n_frames_source: int, n_players_source: int, n_players_target: int) -> Tuple[Data, TensorType]:
-        x_input = condition[:n_frames_source+2, :].repeat_interleave(repeats=n_players_source, dim=0)
-        x_output = condition[n_frames_source+2:, :].repeat_interleave(repeats=n_players_target, dim=0)
-        x = torch.concat(tensors=(x_input, x_output), dim=0)
-        #  = torch.concat(tensors=(seq[:, :2], x), dim=-1)
-        x = torch.clamp(input=(x+seq*self.temp), min=0.0, max=1.0)
-        
-        if not self.trainer.predicting: 
-            self.log_dict({"temperature": self.temp}, prog_bar=False, batch_size=1)
+        x_input = condition[:n_frames_source+1, :].repeat_interleave(repeats=n_players_source, dim=0)
+        x_output = condition[n_frames_source+1:, :].repeat_interleave(repeats=n_players_target, dim=0)
+        x = torch.concat(tensors=(x_input, x_output), dim=0)        
         return x 
      
     def configure_optimizers(self):
@@ -82,7 +69,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
         seq_emb += self.pe._[:seq_emb.shape[0], :] 
         
-        mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=seq_emb.device, dtype=seq_emb.dtype)
+        mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=self.device, dtype=seq_emb.dtype)
         condition = self.TransformerDecoder(seq_emb, mask)
         
         if iter: 
@@ -94,18 +81,19 @@ class DecoderOnlyTransformer(pl.LightningModule):
         return seq, seq_node_hat
     
     def training_step(self, batch, batch_idx): 
-        y, y_hat = self(**batch) 
-        loss = self._loss(y, y_hat, "train")
+        y, y_hat = self(**batch)
+        loss = self._loss(y, y_hat, batch["n_frames_target"], batch["n_players_target"], "train")
         return loss 
 
     def validation_step(self, batch, batch_idx): 
-        y, y_hat = self(**batch)                              
-        loss = self._loss(y, y_hat, "val")
+        y, y_hat = self(**batch)
+        loss = self._loss(y, y_hat, batch["n_frames_target"], batch["n_players_target"], "val")
         return loss 
 
     def test_step(self, batch, batch_idx): 
         y, y_hat = self(**batch)                            
-        loss = self._loss(y, y_hat, "test")
+        y, y_hat = self(**batch)
+        loss = self._loss(y, y_hat, batch["n_frames_target"], batch["n_players_target"], "test")
         return loss 
     
     def predict_step(self, batch, batch_idx): # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 

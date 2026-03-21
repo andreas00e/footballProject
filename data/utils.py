@@ -18,38 +18,39 @@ def collate_fn_graph(batch): # TODO: Move this to dataloading
     source_indices, target_indices = [], []
     source_index, target_index = 0, 0
     
-    for b in batch: # XXX: Currently this only works for batch_size=1 !!!
+    for b in batch: # XXX: Currently this only works for batch_size=1
         source, target, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features = b.values() 
     
         placeholder_token_source = torch.zeros(size=(n_players_source, n_features), dtype=torch.float32) 
         placeholder_token_target = torch.zeros(size=(n_players_target, n_features), dtype=torch.float32) 
         
-        if target: 
-            x = torch.concat(tensors=(placeholder_token_source, source.x, placeholder_token_source, target.x, placeholder_token_target), dim=0) 
-        else:
-            x = torch.concat(tensors=(placeholder_token_source, source.x, placeholder_token_source), dim=0) 
+        if target: # mode=train
+            x = torch.concat(tensors=(placeholder_token_source, source.x, placeholder_token_target, target.x, placeholder_token_target), dim=0) # feature vector for training 
+        else: # mode=predict
+            x = torch.concat(tensors=(placeholder_token_source, source.x, placeholder_token_target), dim=0) # feature vector for inference 
         
-        bos_edge_index = torch.nonzero((~torch.eye(n_players_source, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the bos, and sep token 
-        eos_edge_index = torch.nonzero((~torch.eye(n_players_target, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the eos token 
+        bos_edge_index = torch.nonzero((~torch.eye(n_players_source, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the bos token 
+        eos_edge_index = torch.nonzero((~torch.eye(n_players_target, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the sep, and eos token 
         
         source_edge_index = source.edge_index + n_players_source 
-        sep_edge_index = bos_edge_index + torch.max(source_edge_index) + 1
+        sep_edge_index = eos_edge_index + torch.max(source_edge_index) + 1
         
         if target: 
             target_edge_index = target.edge_index + torch.max(sep_edge_index) + 1 if target.edge_index.shape[-1] != 0 else None
-            eos_edge_index += torch.max(target_edge_index) + 1 if target_edge_index != None else eos_edge_index + torch.max(sep_edge_index)
-            edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index, target.edge_index, eos_edge_index), dim=-1) 
+            if target_edge_index != None:  
+                eos_edge_index += torch.max(target_edge_index) + 1 
+            else: 
+                eos_edge_index += torch.max(sep_edge_index)
+            edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index, target.edge_index, eos_edge_index), dim=-1) # mode=train
         else: 
-            edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index), dim=-1) 
+            edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index), dim=-1) # mode=predict
         
         seq = Data(x=x[:, :-1], edge_index=edge_index) # number of output frames is not passed to model 
         
-        source_indices += [source_index+j for j in range(n_frames_source+2) for _ in range(n_players_source)] # include bos, and sep token
-        source_index += 1
+        source_indices += [source_index+j for j in range(n_frames_source+1) for _ in range(n_players_source)] # include bos token
 
-        if target: 
-            target_indices += [target_index+j for j in range(1, n_frames_target+2) for _ in range(n_players_target)] # include eos token
-            target_index += 1
+        if target: # mode=train
+            target_indices += [target_index+j for j in range(1, n_frames_target+3) for _ in range(n_players_target)] # include sep, and eos token
     
     seq_indices = source_indices + [t+max(source_indices) for t in target_indices] if target else source_indices
     seq_indices = torch.tensor(seq_indices, dtype=torch.int64)

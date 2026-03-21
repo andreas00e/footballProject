@@ -1,4 +1,4 @@
-mode: predict # can also be set through the comamnd line with "mode=train" or "mode=predict"
+mode: train # can also be set through the comamnd line with "mode=train" or "mode=predict"
 
 seed_everything:
   seed: 42
@@ -110,9 +110,9 @@ model:
       out_channels: ${model.general.features}
 
 logger: 
-  name: NFLogger_graph_03_17
+  name: NFLogger_graph_03_21
   save_dir: ${save_dir}/logger
-  version: small_data
+  version: test_034529u5u2
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
