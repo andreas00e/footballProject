@@ -33,11 +33,13 @@ def collate_fn_graph(batch): # TODO: Move this to dataloading
         eos_edge_index = torch.nonzero((~torch.eye(n_players_target, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the sep, and eos token 
         
         source_edge_index = source.edge_index + n_players_source 
-        sep_edge_index = eos_edge_index + torch.max(source_edge_index) + 1
-        
+        sep_edge_index = (eos_edge_index + torch.max(source_edge_index) + 1) if n_players_target > 1 else torch.max(source_edge_index) + 1
+            
         if target: 
             target_edge_index = target.edge_index + torch.max(sep_edge_index) + 1 if target.edge_index.shape[-1] != 0 else None
-            if target_edge_index != None:  
+            if sep_edge_index.numel() == 0: 
+                raise Exception
+            if   target_edge_index is not None:  
                 eos_edge_index += torch.max(target_edge_index) + 1 
             else: 
                 eos_edge_index += torch.max(sep_edge_index)
