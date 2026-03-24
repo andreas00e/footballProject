@@ -35,14 +35,6 @@ class GraphModule(nn.Module):
         if isinstance(batch, torch.Tensor):
             x = global_mean_pool(x, batch)
         return x   
-        
-class PlayerEmbeddingMLP(nn.Module): 
-    def __init__(self, player_features: List) -> None:
-        super().__init__()
-        self.model = nn.Sequential(*list2sequential(player_features))
-        
-    def forward(self, x: TensorType["*"]) -> TensorType["*"]: 
-        return self.model(x)
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: int, max_len: int) -> None:

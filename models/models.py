@@ -1,19 +1,18 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, Tuple, Union
 
 import torch 
-import torch.nn as nn 
+import torch.nn as nn
 from torchtyping import TensorType
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import lightning as pl
-
 from torch_geometric.data import Data
 
-from models.utils import TransformerDecoder, GraphModule, PlayerEmbeddingMLP, PositionalEncoding, RMSELoss, list2sequential
+from models.utils import TransformerDecoder, GraphModule, PositionalEncoding, RMSELoss
 
         
 class DecoderOnlyTransformer(pl.LightningModule):
-    def __init__(self, general: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, player_embedding: List, graph: Dict):
+    def __init__(self, general: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, graph: Dict):
         super().__init__()
         self.save_hyperparameters()
         self.graph = graph 
@@ -25,7 +24,6 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.transformer = transformer
         self.frame_embedding = general.frame_embedding 
         
-        self.SeqEmb = PlayerEmbeddingMLP(player_embedding) # Needed for non-graph frame embedding, e.g. sequential # TODO: Get rid of that for the moment, as we do not need it 
         self.GraphEncoder = GraphModule(self.graph.encoder)
         self.GraphDecoder = GraphModule(self.graph.decoder)
         
@@ -36,9 +34,9 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="eos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))  
         
-        self.W_Q = torch.nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
-        self.W_K = torch.nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
-        self.W_V = torch.nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(1, 17, 1), nonlinearity="relu")) # TODO: Move max_n_players to config 
+        self.W_Q = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
+        self.W_K = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
+        self.W_V = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, 17, 1), nonlinearity="relu")) # TODO: Move max_n_players to config 
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
@@ -53,7 +51,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
 
-    def _attention(self, z: TensorType["n_frames", "hidden_dim"], t: int, d: int) -> TensorType["n_frames_target", "hidden_dim", "n_players_target"]:
+    def _attention(self, z: TensorType["n_frames", "hidden_dim"], t: int, d: int) -> TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]:
         # we are only interested in the target part of the transformer output
         z = z[-t:, :].unsqueeze(1) # [t, 1, d] 
         
@@ -71,11 +69,14 @@ class DecoderOnlyTransformer(pl.LightningModule):
         A = torch.bmm(torch.softmax(torch.bmm(Q, K.T) / torch.sqrt(d), dim=-1), V) # [t, d, d] @ [t, d, n_z] -> [t, d, n_z]
         return A
     
-    def _seq_2_nodes(self, seq: TensorType["*"], condition: TensorType["*"], n_frames_source: int, n_players_source: int, n_players_target: int) -> Tuple[Data, TensorType]:
-        x_input = condition[:n_frames_source+1, :].repeat_interleave(repeats=n_players_source, dim=0)
-        x_output = condition[n_frames_source+1:, :].repeat_interleave(repeats=n_players_target, dim=0)
-        x = torch.concat(tensors=(x_input, x_output), dim=0)        
-        return x 
+    def _tensor2data(self, condition: TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]) -> Data:
+        t, d, p = condition.shape
+        x = condition.permute(0, 2, 1).view(t*p, d)
+        _index = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the bos token 
+        edge_index = torch.concat(tensors=[_index+i for i in range(t)])
+        
+        data = Data(x=x, edge_index=edge_index)
+        return data 
     
     def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) -> Tuple[TensorType["*"], TensorType["*"]]: 
         bos_graph = self.bos_graph.expand(n_players_source, -1)
@@ -97,12 +98,8 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         a = self._attention(z=condition, t=n_frames_target+2, d=n_players_target)
         
-        if iter: 
-            n_frames_target = iter
-        
-        seq_hat_x = self._seq_2_nodes(seq.x, a, n_frames_source, n_players_source, n_players_target)
-                
-        seq_node_hat = self.GraphDecoder(seq_hat_x, seq.edge_index, batch=None)
+        data = self._seq_2_nodes(condition=a)     
+        seq_node_hat = self.GraphDecoder(data.x, data.edge_index, batch=None)
         return seq, seq_node_hat
     
     def training_step(self, batch, batch_idx): 
