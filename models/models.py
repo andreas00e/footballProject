@@ -1,3 +1,4 @@
+import math 
 from typing import Dict, Tuple, Union
 
 import torch 
@@ -51,29 +52,30 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
 
-    def _attention(self, z: TensorType["n_frames", "hidden_dim"], t: int, d: int) -> TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]:
+    def _attention(self, z: TensorType["n_frames", "hidden_dim"], t:int, p: int) -> TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]:
+        d = z.shape[-1]
         # we are only interested in the target part of the transformer output
         z = z[-t:, :].unsqueeze(1) # [t, 1, d] 
-        
+
         # expansion of parameter matrices 
         W_Q = self.W_Q.repeat(t, 1, 1) # [t, d, 1]
         W_K = self.W_K.repeat(t, 1, 1) # [t, d, 1]
         
-        W_V = self.W_V[:, :d, :].repeat(t, 1, 1) # [t, n_z, 1], n_z: number of output players 
+        W_V = self.W_V[:, :p, :].repeat(t, 1, 1) # [t, p, 1], p: number of output players 
         
         # matrix-vector multiplications (I do know that it is not actually a matrix, but a tensor...)
         Q = torch.bmm(W_Q, z) # [t, d, 1] @ [t, 1, d] -> [t, d, d]
         K = torch.bmm(W_K, z) # [t, d, 1] @ [t, 1, d] -> [t, d, d]
-        V = torch.bmm(W_V, z).permute(0, 2, 1) # [t, n_z, 1] @ [t, 1, d] -> [t, n_z, d] -> [t, d, n_z]
+        V = torch.bmm(W_V, z).permute(0, 2, 1) # [t, p, 1] @ [t, 1, d] -> [t, p, d] -> [t, d, p]
         
-        A = torch.bmm(torch.softmax(torch.bmm(Q, K.T) / torch.sqrt(d), dim=-1), V) # [t, d, d] @ [t, d, n_z] -> [t, d, n_z]
+        A = torch.bmm(torch.softmax(torch.bmm(Q, K.permute(0, 2, 1)) / math.sqrt(d), dim=-1), V) # [t, d, d] @ [t, d, p] -> [t, d, p]
         return A
     
-    def _tensor2data(self, condition: TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]) -> Data:
-        t, d, p = condition.shape
-        x = condition.permute(0, 2, 1).view(t*p, d)
-        _index = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the bos token 
-        edge_index = torch.concat(tensors=[_index+i for i in range(t)])
+    def _tensor2data(self, z: TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]) -> Data:
+        t, d, p = z.shape
+        x = z.permute(0, 2, 1).reshape(-1, d)
+        _index = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64).to(self.device)).T
+        edge_index = torch.concat(tensors=[_index+i for i in range(t)], dim=-1)
         
         data = Data(x=x, edge_index=edge_index)
         return data 
@@ -94,11 +96,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         seq_emb += self.pe._[:seq_emb.shape[0], :] 
         
         mask = torch.nn.Transformer.generate_square_subsequent_mask(sz=seq_emb.shape[0], device=self.device, dtype=seq_emb.dtype)
-        condition = self.TransformerDecoder(seq_emb, mask) # [n_frames, d_model]
-        
-        a = self._attention(z=condition, t=n_frames_target+2, d=n_players_target)
-        
-        data = self._seq_2_nodes(condition=a)     
+        z = self.TransformerDecoder(seq_emb, mask) # [n_frames, d_model]
+        z = self._attention(z=z, t=n_frames_target+2, p=n_players_target)
+        data = self._tensor2data(z=z)  
+           
         seq_node_hat = self.GraphDecoder(data.x, data.edge_index, batch=None)
         return seq, seq_node_hat
     

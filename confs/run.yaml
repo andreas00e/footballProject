@@ -81,12 +81,9 @@ model:
     encoder_layer: 
       d_model: 16
       nhead: 8
-      dim_feedforward: ${model.general.features} # number of input features
+      dim_feedforward: 32 
     decoder: 
       num_layers: 4
-    regression_head: 
-      - ${model.transformer.encoder_layer.d_model}
-      - ${model.general.features}
     positional_encoding: 
       d_model: ${model.transformer.encoder_layer.d_model}
       dropout: 0.1
@@ -99,15 +96,15 @@ model:
       num_layers: 5
       out_channels: ${model.transformer.encoder_layer.d_model}
     decoder: 
-      in_channels: ${model.transformer.encoder_layer.dim_feedforward} # ${model.graph.encoder.out_channels}
+      in_channels: ${model.transformer.encoder_layer.d_model} 
       hidden_channels: 10
       num_layers: 5
       out_channels: ${model.general.features}
 
 logger: 
-  name: NFLogger_graph_03_21
+  name: NFLogger_graph
   save_dir: ${save_dir}/logger
-  version: test_034529u5u2
+  version: test_sdfjosidmc
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
