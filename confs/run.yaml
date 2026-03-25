@@ -104,7 +104,7 @@ model:
 logger: 
   name: NFLogger_graph
   save_dir: ${save_dir}/logger
-  version: test_sdfjosidmc
+  version: test_sdfspskd
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger

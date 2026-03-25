@@ -74,20 +74,20 @@ class DecoderOnlyTransformer(pl.LightningModule):
     def _tensor2data(self, z: TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]) -> Data:
         t, d, p = z.shape
         x = z.permute(0, 2, 1).reshape(-1, d)
-        _index = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64).to(self.device)).T
-        edge_index = torch.concat(tensors=[_index+i for i in range(t)], dim=-1)
+        _edge = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64).to(self.device)).T
+        edge_index = torch.concat(tensors=[_edge+i for i in range(t)], dim=-1)
         
         data = Data(x=x, edge_index=edge_index)
         return data 
     
     def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) -> Tuple[TensorType["*"], TensorType["*"]]: 
         bos_graph = self.bos_graph.expand(n_players_source, -1)
-        sep_graph = self.sep_graph.expand(n_players_source, -1)
+        sep_graph = self.sep_graph.expand(n_players_target, -1)
         eos_graph = self.eos_graph.expand(n_players_target, -1)
         
         if iter is None or iter == 1: 
             seq.x[:n_players_source, :] = bos_graph # bos token is appended to the start of the sequence 
-            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+2), :] = sep_graph # sep token is appended to the end of the input sequence 
+            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+1)+n_players_target, :] = sep_graph # sep token is appended to the end of the input sequence 
 
         if iter is None: # only during training 
             seq.x[-n_players_target:, :] = eos_graph # eos token is not added to the sequence during prediction 
