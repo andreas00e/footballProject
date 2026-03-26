@@ -1,61 +1,76 @@
 import os 
 import math 
+import hydra
 import argparse
 import numpy as np 
 import pandas as pd
+import polars as pl 
 from tqdm import tqdm
 from pathlib import Path
-import multiprocessing as mp 
-from itertools import chain
-from functools import partial
-from typing import Dict, List, Tuple, Union
 from omegaconf import OmegaConf as oc
+from typing import Dict, List, Tuple, Union
+
+# QB: Quarterback       # DG: Defensive Guard       # K: Kicker 
+# RB: Runningback       # DT: Defensive Tackle      # P Punter
+# FB: Fullback          # NT: Nose Tackle 
+# WR: Wide Reciever     # DE: Defensive End 
+# TE: Tight End         # LB: Linebacker 
+# C: Center             # ILB: Inside Linebacker 
+# T: Tackle             # OLB: Outside Linebacker 
+# OT: Offensive Tackle  # MLB: Middle Linebacker 
+# OG: Offensive Guard   # CB: Corner Back 
+                        # S: Safety 
+                        # FS: Free Safety 
+                        # SS: Strong Safety 
+                        
+# For more information about the positions of american football https://en.wikipedia.org/wiki/American_football_positions
 
 N_POSITIONS = {
- 'QB': 0, 'RB': 0, 'FB': 0, 'WR': 0, 'TE': 0, 'C': 0, 'T': 0, 'OT': 0, 'OG': 0,
- 'DG': 0, 'DT': 0, 'NT': 0, 'DE': 0, 'LB': 0, 'ILB': 0, 'OLB': 0, 'MLB': 0,
- 'CB': 0, 'S': 0, 'FS': 0, 'SS': 0, 'K': 0, 'P': 0
+ "QB": 0.0, "RB": 0.0, "FB": 0.0, "WR": 0.0, "TE": 0.0, "C": 0.0, "T": 0.0, "OT": 0.0, "OG": 0.0,
+ "DG": 0.0, "DT": 0.0, "NT": 0.0, "DE": 0.0, "LB": 0.0, "ILB": 0.0, "OLB": 0.0, "MLB": 0.0,
+ "CB": 0.0, "S": 0.0, "FS": 0.0, "SS": 0.0, "K": 0.0, "P": 0.0
 }
 
-def get_pos(csv_file: os.PathLike) -> Union[List, List[str]]:
-    """ Method returning every position present in the currently looked at dataframe 
+def get_pos(csv_path: os.PathLike) -> Union[List[str], None]:
+    """ Method returning the name of every position players have in the currently looked at csv file 
 
     Args:
-        file (os.PathLike): Path to pandas DataFrame
+        csv_path (os.PathLike): Path to the csv file containing the play data
 
     Returns:
-        Union[List, List[str]]: Returns an empty list, if the given file is an output file, r
-                                returns a list with all present positions, if the given file is an input file 
+        Union[List[str], None]: List of all unique positions, if the given csv file was an input file.
+                                If the given csv file was an output file, None is returned 
     """
-    pos = []
-    if 'input' in csv_file:
-        df = pd.read_csv(csv_file)
-        pos = df['player_position'].unique().tolist()
-        if 'K' in pos: 
-            print(csv_file)
-    return pos 
-
-def pos_to_num(file_path: Path) -> dict[str: float]: 
-    """ 
-    Transform position labels into numeric form for network processing
     
+    if "input" in csv_path:
+        pos = []
+        df = pd.read_csv(csv_path)
+        pos = df["player_position"].unique().tolist()
+        return pos 
+    else: 
+        return None
+
+def pos2num(file_path: os.PathLike) -> Dict[str: float]: 
+    """ Method that transforms literal position labels into numeric position values that can later be passed to the NN
+    
+    Args:
+        file_path (os.PathLike): Path to the text file containing every positions literal, e.g. QB 
+
     Returns:
-        dict[str: float]: Dictionary the keys being the players and the values being the numeric position encodings
+        dict[str: float]: Dictionary with the keys being the position literals, and the keys being the encoded numeric position values 
     """
     with open(file_path) as f: 
-        pos_lit = [pos.replace(' ', '') for pos in f.read().split('\n')]
-        pos_num = list(map(lambda x: math.sin(math.sqrt(int.from_bytes(x.encode('utf-8'), 'big'))), pos_lit))
-        
+        pos_lit = [pos.replace(" ", "") for pos in f.read().split("\n")] # literal of position
+        pos_num = list(map(lambda x: math.sin(math.sqrt(int.from_bytes(x.encode('utf-8'), 'big'))), pos_lit)) # value of position 
         return dict(zip(pos_lit, pos_num))
     
 def get_max_positions(file_path: os.PathLike) -> Tuple[int, int]: 
-    n_in_players =  0
-    n_out_players = 0
+    n_in_players, n_out_players =  0, 0
     
-    df = pd.read_csv(file_path, usecols=['game_id', 'play_id', 'nfl_id'])
+    df = pl.read_csv(source=file_path, columns=["game_id", "play_id", "nfl_id"])
     
-    games = df['game_id'].unique()
-    plays = df['play_id'].unique() 
+    games = df["game_id"].unique()
+    plays = df["play_id"].unique() 
     
     for game in games: 
         for play in plays: 
@@ -260,7 +275,7 @@ def main():
     # merged_min_max.update(min_max_dict)
     # oc.save(merged_min_max, min_max_path)
     
-    positions = pos_to_num(file_path=args.pos_path)
+    positions = pos2num(file_path=args.pos_path)
     pos_path = os.path.join(os.getcwd(), args.pos_path)
     s = '\n'.join([f'{s[0]}: {str(s[1])}' for s in positions.items()])
     

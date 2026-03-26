@@ -13,23 +13,23 @@ from models.utils import TransformerDecoder, GraphModule, PositionalEncoding, RM
 
         
 class DecoderOnlyTransformer(pl.LightningModule):
-    def __init__(self, general: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, graph: Dict):
+    def __init__(self, data: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, graph: Dict):
         super().__init__()
-        self.save_hyperparameters()
-        self.graph = graph 
         
-        self.criterion = RMSELoss()
-        
+        self.data = data
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.transformer = transformer
-        self.frame_embedding = general.frame_embedding 
+        self.graph = graph
+        
+        self.save_hyperparameters()
+        self.criterion = RMSELoss()
         
         self.GraphEncoder = GraphModule(self.graph.encoder)
         self.GraphDecoder = GraphModule(self.graph.decoder)
         
-        self.pe = PositionalEncoding(**self.transformer.positional_encoding)
         self.TransformerDecoder = TransformerDecoder(self.transformer)
+        self.pe = PositionalEncoding(**self.transformer.positional_encoding)
         
         self.register_buffer(name="bos_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
         self.register_buffer(name="sep_graph", tensor=torch.rand(size=(1, self.graph.encoder.in_channels), dtype=torch.float32, device=self.device))
@@ -37,10 +37,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         
         self.W_Q = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
         self.W_K = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, self.transformer.encoder_layer.d_model, 1), nonlinearity="relu"))
-        self.W_V = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, 17, 1), nonlinearity="relu")) # TODO: Move max_n_players to config 
+        self.W_V = torch.nn.Parameter(nn.init.kaiming_uniform_(torch.empty(1, self.data.max_players, 1), nonlinearity="relu"))
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), **self.optimizer)
+        optimizer = torch.optim.AdamW(self.parameters(), **self.optimizer)
         lr_scheduler = CosineAnnealingLR(optimizer, **self.lr_scheduler)
         return {
             "optimizer": optimizer, 
@@ -52,7 +52,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         self.log_dict({'{}_loss'.format(mode): loss}, prog_bar=True, on_step=True, on_epoch=True, batch_size=1)
         return loss
 
-    def _attention(self, z: TensorType["n_frames", "hidden_dim"], t:int, p: int) -> TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]:
+    def _attention(self, z: TensorType["n_frames", "d_model"], t:int, p: int) -> TensorType["n_frames_target+2", "d_model", "n_players_target"]:
         d = z.shape[-1]
         # we are only interested in the target part of the transformer output
         z = z[-t:, :].unsqueeze(1) # [t, 1, d] 
@@ -68,19 +68,20 @@ class DecoderOnlyTransformer(pl.LightningModule):
         K = torch.bmm(W_K, z) # [t, d, 1] @ [t, 1, d] -> [t, d, d]
         V = torch.bmm(W_V, z).permute(0, 2, 1) # [t, p, 1] @ [t, 1, d] -> [t, p, d] -> [t, d, p]
         
-        A = torch.bmm(torch.softmax(torch.bmm(Q, K.permute(0, 2, 1)) / math.sqrt(d), dim=-1), V) # [t, d, d] @ [t, d, p] -> [t, d, p]
-        return A
+        a = torch.bmm(torch.softmax(torch.bmm(Q, K.permute(0, 2, 1)) / math.sqrt(d), dim=-1), V) # [t, d, d] @ [t, d, p] -> [t, d, p]
+        return a
     
-    def _tensor2data(self, z: TensorType["n_frames_target+2", "hidden_dim", "n_players_target"]) -> Data:
+    def _tensor2data(self, z: TensorType["n_frames_target+2", "d_model", "n_players_target"]) -> Data:
         t, d, p = z.shape
-        x = z.permute(0, 2, 1).reshape(-1, d)
+        
+        x = z.permute(0, 2, 1).reshape(-1, d)  # [t, d, p] -> [t*p, d]
         _edge = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64).to(self.device)).T
         edge_index = torch.concat(tensors=[_edge+i for i in range(t)], dim=-1)
-        
         data = Data(x=x, edge_index=edge_index)
         return data 
     
-    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) -> Tuple[TensorType["*"], TensorType["*"]]: 
+    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) \
+            -> Tuple[TensorType["*"], TensorType["*"]]: 
         bos_graph = self.bos_graph.expand(n_players_source, -1)
         sep_graph = self.sep_graph.expand(n_players_target, -1)
         eos_graph = self.eos_graph.expand(n_players_target, -1)

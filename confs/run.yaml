@@ -65,17 +65,19 @@ data_features:
     
 model: 
   general: 
-    frame_embedding: add # "tf": attention between all players of one frame # "add": addition of the player embeddings of one frame 
     norm_length: ${len:${data_features.model.norm}}
     no_norm_length: ${len:${data_features.model.no_norm}}
     features: ${sub_2:${add_2:${model.general.norm_length},${model.general.no_norm_length}},1}
+  
+  data: 
+    max_players: 17
 
   optimizer: 
-    lr: 1e-5
+    lr: 1e-3
 
   lr_scheduler: 
-    T_max: 1e4 # TODO: Find more reasonable value 
-    eta_min: 1e-3
+    T_max: 1e4 
+    eta_min: 1e-4
 
   transformer: 
     encoder_layer: 
@@ -92,13 +94,13 @@ model:
   graph:
     encoder: 
       in_channels: ${model.general.features} 
-      hidden_channels: 10 
-      num_layers: 5
+      hidden_channels: 20 
+      num_layers: 10
       out_channels: ${model.transformer.encoder_layer.d_model}
     decoder: 
       in_channels: ${model.transformer.encoder_layer.d_model} 
-      hidden_channels: 10
-      num_layers: 5
+      hidden_channels: 20
+      num_layers: 10
       out_channels: ${model.general.features}
 
 logger: 
