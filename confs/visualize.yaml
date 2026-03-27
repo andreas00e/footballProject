@@ -28,7 +28,7 @@ extrema:
   y_min: ${values.y.min}
   y_max: ${values.y.max}
 
-identifiers: 
-  week: 2 # [1, 18]
-  game_id: 2023091700 # look up in csv file(s)
-  play_id: 855 # look up in csv file(s)
+identifiers: #TODO: Include the option to randomly pick plays
+  week: 17 # [1, 18]
+  game_id: 2023122800 # look up in csv file(s)
+  play_id: 138 # look up in csv file(s)

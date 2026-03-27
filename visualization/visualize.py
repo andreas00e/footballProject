@@ -40,11 +40,11 @@ class Visualize():
         # TODO: Include line for play data that was predicted by the model
         
         self.n_players = len(in_play["nfl_id"].unique())
-        self.out_players = in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique().to_list()
+        self.out_players = [name.split()[1] for name in in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique().to_list()]
         self.n_out_players = len(self.out_players)
 
         sides = in_play.filter(pl.col("frame_id") == 1)["player_side"]
-        names = in_play["player_name"].unique().item(0)
+        names = [name.split()[1] for name in in_play["player_name"].unique()]
         colors = ["red" if side == "Offense" else "blue" for side in sides]
         player_dict = dict(zip(names, colors))
         return in_play, out_play, player_dict
@@ -58,32 +58,30 @@ class Visualize():
     
     def _update(self, ax, traces_in, traces_out, frame_id) -> None:  
         assert 0 < frame_id <= self.n_frames, ValueError("Stated frame is not included in frame indices")
-        n_input_frames = self.final_dict["in_frames"]
+        n_input_frames = self.final_dict["in_frames"] # TODO: Move this to __init__
         
-        if frame_id <= n_input_frames:
+        if frame_id <= n_input_frames: # input 
             play = self.in_play.filter(pl.col("frame_id") == frame_id)
-            if self.info: 
-                orientations = play["dir"] 
-                orientations = list(map(self._ang2vec, orientations))
-                node_orientations = dict(zip(self.players, orientations))
-        else:  
+            # if self.info: 
+            #     orientations = play["dir"] 
+            #     orientations = list(map(self._ang2vec, orientations))
+            #     node_orientations = dict(zip(self.players, orientations))
+        else: # output
             play = self.out_play.filter(pl.col("frame_id") == frame_id-n_input_frames)
         
-        x_pos = [x for x in play["x"]]
-        y_pos = [y for y in play["y"]]
-        norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max, mode="symmetric"), x_pos)
-        norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max, mode="symmetric"), y_pos)
+        x_pos, y_pos = play["x", "y"]
+        norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max, mode="vanilla"), x_pos) # TODO: Move mode to config 
+        norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max, mode="vanilla"), y_pos)
+        pos = list(zip(norm_x_pos, norm_y_pos))
         
-        positions = [pos for pos in zip(norm_x_pos, norm_y_pos)]
-        
-        if frame_id <= n_input_frames: 
-            node_positions = dict(zip(self.players, positions)) 
+        if frame_id <= n_input_frames: # input
+            node_positions = dict(zip(self.players, pos)) # all players
             if frame_id == n_input_frames: 
-                self.last_node_positions = node_positions # Save last node positions of input sequence to continue with them for the output frames
+                self.last_node_positions = node_positions # saving the final positions of all players (only appearing in the input sequence)
                 # self.last_x_pos = x_pos
                 # self.last_y_pos = y_pos
-        elif frame_id > n_input_frames: 
-            node_positions = dict(zip(self.out_players, positions))
+        elif frame_id > n_input_frames: # output
+            node_positions = dict(zip(self.out_players, pos)) # only out players
             for player in self.players: 
                 if player in self.out_players: 
                     self.last_node_positions[player] = node_positions[player]
@@ -109,11 +107,11 @@ class Visualize():
         ax.imshow(self.background_img, extent=[-1, 1, -1, 1], aspect="auto")
         # ax.plot(x_pos, y_pos, "r--")
         # nx.set_node_attributes(self.G, node_positions, name="pos")
-        x, y = list(node_positions.values())[0]
-        self.x.append(x)
-        self.y.append(y)
-        nx.draw(self.G, ax=ax, with_labels=True, node_color=self.player_dicts.values(), pos=node_positions) # draw danymic graph
-        ax.plot(self.x, self.y, "r--", lw=5)
+        # x, y = list(node_positions.values())[0]
+        #self.x.append(x)
+        # self.y.append(y)
+        nx.draw(self.G, ax=ax, with_labels=True, node_color=self.player_dicts.values(), pos=node_positions)
+        # ax.plot(self.x, self.y, "r--", lw=5)
 
     def _normalize(self, x: float, min: float, max: float, mode:str) -> float:  
         if mode == "vanilla": 
