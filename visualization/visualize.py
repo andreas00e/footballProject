@@ -1,24 +1,24 @@
 import os 
 import math  
 import hydra
+import random
 import numpy as np 
 import polars as pl 
 from functools import partial
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-import matplotlib.collections as mc
 import matplotlib.animation as animation
 
 
 class Visualize(): 
-    def __init__(self, identifiers: Dict, extrema: Dict, in_df: pl.DataFrame, out_df: pl.DataFrame, background_img: np.ndarray, info: Optional[bool]=False):
+    def __init__(self, identifiers: Dict, extrema: Dict, in_play: pl.DataFrame, out_play: pl.DataFrame, background_img: np.ndarray, info: Optional[bool]=False):
         self.week, self.game_id, self.play_id = identifiers.values()
         self.x_min, self.x_max, self.y_min, self.y_max = extrema.values()
-        self.in_df = in_df
-        self.out_df = out_df
+        self.in_play = in_play
+        self.out_play = out_play
         self.background_img = background_img
         self.info = info
 
@@ -26,28 +26,23 @@ class Visualize():
         self.players, self.out_players, self.x, self.y = [], [], [], []
         self.final_dict, self.last_node_positions = {}, {}
         
-        self.in_play, self.out_play, self.player_dicts = self._load_play()
+        self.player_dicts = self._process_play()
         self.G = self._create_graph(self.player_dicts)
         self.anim = None # later animation
         
     
-    def _load_play(self) -> Tuple[pl.DataFrame, pl.DataFrame, Dict[str, str]]:
-        assert self.game_id in self.in_df["game_id"].unique().to_list(), ValueError("Stated game_id is not in the list of game_ids")
-        assert self.play_id in self.in_df["play_id"].unique().to_list(), ValueError("Stated play_id is not in the list of play_ids")     
-        
-        in_play = self.in_df.filter((pl.col("game_id") == self.game_id) & (pl.col("play_id") == self.play_id))
-        out_play = self.out_df.filter((pl.col("game_id") == self.game_id) & (pl.col("play_id") == self.play_id))
+    def _process_play(self) -> Tuple[pl.DataFrame, pl.DataFrame, Dict[str, str]]:
         # TODO: Include line for play data that was predicted by the model
         
-        self.n_players = len(in_play["nfl_id"].unique())
-        self.out_players = [name.split()[1] for name in in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique().to_list()]
+        self.n_players = len(self.in_play["nfl_id"].unique())
+        self.out_players = [name.split()[1] for name in self.in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique().to_list()]
         self.n_out_players = len(self.out_players)
 
-        sides = in_play.filter(pl.col("frame_id") == 1)["player_side"]
-        names = [name.split()[1] for name in in_play["player_name"].unique()]
+        sides = self.in_play.filter(pl.col("frame_id") == 1)["player_side"]
+        names = [name.split()[1] for name in self.in_play["player_name"].unique()]
         colors = ["red" if side == "Offense" else "blue" for side in sides]
         player_dict = dict(zip(names, colors))
-        return in_play, out_play, player_dict
+        return player_dict
     
     def _create_graph(self, player_dicts: Dict[str, str] ) -> nx.Graph: 
         G = nx.Graph()
@@ -135,29 +130,51 @@ class Visualize():
         plt.axis("equal")
         self.anim = animation.FuncAnimation(fig, partial(self._update, ax, traces_in, traces_out), frames=range(1, self.n_frames+1), repeat=False, blit=False)
         self.anim.save(
-            filename="growingCoil.mp4", 
+            filename="./visualization/play.mp4", 
             writer="ffmpeg", 
             fps=self.n_frames*0.25, 
             dpi=200.0, 
             extra_args=["-pix_fmt", "yuv420p"]
             ) 
+   
+def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
+    in_file = os.path.join(data_dir, "input_2023_w{:02d}.csv".format(week))
+    in_df = pl.read_csv(in_file, columns=features)
+    out_file = os.path.join(data_dir, "output_2023_w{:02d}.csv".format(week))
+    out_df = pl.read_csv(out_file)    
+    return in_df, out_df 
+
+def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], identifiers: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
+    if identifiers:
+        week, game_id, play_id = identifiers.values()
+    else:  
+        week = random.randint(a=1, b=18)
+        
+    in_df, out_df = get_files(data_dir=data_dir, week=week, features=features)
     
+    if not identifiers: 
+        game_id = random.choice(in_df["game_id"].unique().to_list())
+        play_id = random.choice(in_df.filter(pl.col("game_id") == game_id)["play_id"].unique().to_list()) 
+    
+    print(f"Visualizing play: {play_id} from game: {game_id} from week: {week}")
+    
+    in_play = in_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
+    out_play = out_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
+    return in_play, out_play
+
+
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
 def main(cfg) -> None:  
     background_img = mpimg.imread(cfg.background_img)
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
-    week = cfg.identifiers.week
-    assert week in list(range(1, 19)), ValueError("Available data ranges from week 1 to week 18 of the 2023 NFL regular season. \n \
-        The stated week is not in the dataset!")
     
-    in_file = os.path.join(data_dir, "input_2023_w{:02d}.csv".format(week))
-    in_df = pl.read_csv(in_file, columns=cfg.features)
-    out_file = os.path.join(data_dir, "output_2023_w{:02d}.csv".format(week))
-    out_df = pl.read_csv(out_file)
-    
-    visualize = Visualize(cfg.identifiers, cfg.extrema, in_df, out_df, background_img)
+    if cfg.pick_random: 
+        in_play, out_play = get_frames(data_dir=data_dir, features=cfg.features, identifiers=None)
+    else: 
+        in_play, out_play = get_frames(data_dir=data_dir, features=cfg.features, identifiers=cfg.identifiers)
+
+    visualize = Visualize(cfg.identifiers, cfg.extrema, in_play, out_play, background_img)
     visualize.plot()
     
-
 if __name__ == "__main__": 
     main()
