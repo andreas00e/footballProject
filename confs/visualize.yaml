@@ -1,6 +1,11 @@
 defaults:
   - values: updated_min_max_values
   - _self_
+fig: 
+  ratio: 1.7778
+  factor: 7.5 
+  x_size: $mult_2{${ratio}, ${factor}}
+  y_size: ${factor}
 
 data_dir: data/nfl-big-data-bowl-2026-prediction/train
 background_img: data/images/field.jpeg
@@ -28,9 +33,9 @@ extrema:
   y_min: ${values.y.min}
   y_max: ${values.y.max}
 
-pick_random: True
+pick_random: False
 
 identifiers: #TODO: Include the option to randomly pick plays
-  week: 17 # [1, 18]
-  game_id: 2023122800 # look up in csv file(s)
-  play_id: 138 # look up in csv file(s)
+  week: 2 # [1, 18]
+  game_id: 2023091400 # look up in csv file(s)
+  play_id: 2523 # look up in csv file(s)
