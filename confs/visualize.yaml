@@ -4,8 +4,8 @@ defaults:
 fig: 
   ratio: 1.7778
   factor: 7.5 
-  x_size: $mult_2{${ratio}, ${factor}}
-  y_size: ${factor}
+  x_size: ${mult_2:${fig.ratio}, ${fig.factor}}
+  y_size: ${fig.factor}
 
 data_dir: data/nfl-big-data-bowl-2026-prediction/train
 background_img: data/images/field.jpeg

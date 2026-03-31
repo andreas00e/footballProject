@@ -23,51 +23,49 @@ class Visualize():
     def __init__(self, identifiers: DictConfig, extrema: DictConfig, fig: DictConfig, in_play: pl.DataFrame, out_play: pl.DataFrame, _img: np.ndarray, info: Optional[bool]=False):
         self.week_id, self.game_id, self.play_id = identifiers.values()
         self.x_min, self.x_max, self.y_min, self.y_max = extrema.values()
-        self.x_size, self.y_size = fig.values() 
+        _, _, self.x_size, self.y_size = fig.values()
         
         self.in_play = in_play
         self.out_play = out_play
         self._img = _img
         self.info = info
 
-        self.n_players, self.n_out_players = 0, 0
+        self.n_players, self.n_out_players, self.in_frames, self.out_frames = [0]*4
         self.players, self.out_players, self.x, self.y = [], [], [], []
-        self.final_dict, self.last_node_positions, self.trace_lines = {}, {}, {}
+        self.last_node_positions, self.trace_lines = {}, {}, {}
         
-        self.player_dicts = self._process_play()
-        self.G = self._create_graph(self.player_dicts)
+        self.players_dict = self._process_play()
+        self.G = self._create_graph(self.players_dict)
         
         self.fig, self.ax = plt.subplots(figsize=(self.x_size, self.y_size))
-        self.text = self.ax.text(0.02, 0.95, '', transform=self.ax.transAxes, fontsize=100, color="red")        
-        self.anim = None # later animation
+        self.text, self.anim = None, None # later text, later animation
          
-    def _process_play(self) -> Tuple[pl.DataFrame, pl.DataFrame, Dict[str, str]]:
+    def _process_play(self) -> Dict[str, str]:
         # TODO: Include line for play data that was predicted by the model
-        
-        self.n_players = len(self.in_play["nfl_id"].unique())
-        self.out_players = [name.split()[1] for name in self.in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique().to_list()]
+        self.n_players = self.in_play["nfl_id"].n_unique()
+        self.out_players = [name.split()[1] for name in self.in_play.filter(pl.col("player_to_predict") == True)["player_name"].unique()]
         self.n_out_players = len(self.out_players)
 
         sides = self.in_play.filter(pl.col("frame_id") == 1)["player_side"]
         names = [name.split()[1] for name in self.in_play["player_name"].unique()]
         colors = ["red" if side == "Offense" else "blue" for side in sides]
-        player_dict = dict(zip(names, colors))
-        return player_dict
+        players_dict = dict(zip(names, colors))
+        return players_dict
     
-    def _create_graph(self, player_dicts: Dict[str, str] ) -> nx.Graph: 
+    def _create_graph(self, players_dict: Dict[str, str] ) -> nx.Graph: 
         G = nx.Graph()
-        G.add_nodes_from(player_dicts.keys())
-        nx.set_node_attributes(G, values = {}, name = "pos") # initialize nodes/players position attribute
-        nx.set_node_attributes(G, values = player_dicts.keys(), name = "color") # TODO: Change color of nodes to reflect teams actual colors
+        G.add_nodes_from(players_dict.keys())
+        nx.set_node_attributes(G, values={}, name = "pos") # initialize node's position attribute
+        nx.set_node_attributes(G, values=players_dict.keys(), name = "color") # XXX: Change color of nodes to reflect teams actual colors
+        nx.set_node_attributes(G, values=players_dict.values(), name="name")
         return G 
     
     def _update(self, traces_in, traces_out, frame_id) -> None:
         if frame_id != 0: 
            self.ax.clear() 
-        assert 0 < frame_id <= self.n_frames, ValueError("Stated frame is not included in frame indices")
-        n_input_frames = self.final_dict["in_frames"] # TODO: Move this to __init__
         
-        if frame_id <= n_input_frames: # input 
+        in_frames = self.in_frames
+        if frame_id <= in_frames: # input 
             play = self.in_play.filter(pl.col("frame_id") == frame_id)
             color = "blue"
             # if self.info: 
@@ -75,7 +73,7 @@ class Visualize():
             #     orientations = list(map(self._ang2vec, orientations))
             #     node_orientations = dict(zip(self.players, orientations))
         else: # output
-            play = self.out_play.filter(pl.col("frame_id") == frame_id-n_input_frames)
+            play = self.out_play.filter(pl.col("frame_id") == frame_id-in_frames)
             color = "red"
         
         x_pos, y_pos = play["x", "y"]
@@ -83,19 +81,19 @@ class Visualize():
         norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max), y_pos)
         pos = list(zip(norm_x_pos, norm_y_pos))
         
-        if frame_id <= n_input_frames: # input
+        if frame_id <= in_frames: # input
             node_positions = dict(zip(self.players, pos)) # all players
-            if frame_id == n_input_frames: 
+            if frame_id == in_frames: 
                 self.last_node_positions = node_positions # saving the final positions of all players (only appearing in the input sequence)
                 # self.last_x_pos = x_pos
                 # self.last_y_pos = y_pos
-        elif frame_id > n_input_frames: # output
+        elif frame_id > in_frames: # output
             node_positions = dict(zip(self.out_players, pos)) # only out players
             for player in self.players: 
                 if player in self.out_players: 
                     self.last_node_positions[player] = node_positions[player]
                 else: 
-                    self.player_dicts[player] = "grey"
+                    self.players_dict[player] = "grey"
             node_positions = self.last_node_positions
         
         # for node, attrs in self.G.nodes(data=True):  # draw direction vectors as arrows
@@ -124,13 +122,12 @@ class Visualize():
         #self.x.append(x)
         # self.y.append(y)
         nx.draw_networkx_edges(G=self.G, pos=node_positions, ax=self.ax, edge_color="black")
-        nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=self.player_dicts.values(), ax=self.ax, label=self.players)
-        # nx.draw(self.G, ax=self.ax, with_labels=False, node_color=self.player_dicts.values(), pos=node_positions)
+        nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=self.players_dict.values(), ax=self.ax)
+        nx.draw_networkx_labels(G=self.G, pos=node_positions, labels=self.players, ax=self.ax, font_size=10, font_color="black")
         # ax.plot(self.x, self.y, "r--", lw=5)
 
     def _normalize(self, x: float, min: float, max: float) -> float:  
         return (x-min)/(max-min) 
-
 
     def _ang2vec(self, input: float) -> Tuple[float, float]: 
         return math.sin(input), math.cos(input)
@@ -140,16 +137,17 @@ class Visualize():
         traces_in = {node: [] for node in self.G.nodes}
         traces_out = {node: [] for node in self.G.nodes}
         
-        self.final_dict = {"in_frames": len(self.in_play["frame_id"].unique()), "out_frames": len(self.out_play["frame_id"].unique())}
-        self.n_frames = sum(self.final_dict.values())
-        self.players = list(self.player_dicts.keys())
+        self.in_frames = self.in_play["frame_id"].n_unique()
+        self.out_frames = self.out_play["frame_id"].n_unique()
+        n_frames = self.in_frames+self.out_frames
+        self.players = {k: k for k in self.players_dict}
  
         plt.axis("equal")
-        self.anim = animation.FuncAnimation(self.fig, partial(self._update, traces_in, traces_out), frames=range(1, self.n_frames+1), repeat=False, blit=False)
+        self.anim = animation.FuncAnimation(self.fig, partial(self._update, traces_in, traces_out), frames=range(1, n_frames+1), repeat=False, blit=False)
         self.anim.save(
             filename="./visualization/play.mp4", 
             writer="ffmpeg", 
-            fps=self.n_frames*0.25, 
+            fps=n_frames*0.25, 
             dpi=200.0, 
             extra_args=["-pix_fmt", "yuv420p"]
             ) 
@@ -173,7 +171,7 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], identifie
         game_id = random.choice(in_df["game_id"].unique().to_list())
         play_id = random.choice(in_df.filter(pl.col("game_id") == game_id)["play_id"].unique().to_list()) 
     
-    print(f"Visualizing play: {play_id} from game: {game_id} from week: {week}")
+    print(f"Visualizing play {play_id} from game {game_id} from week {week}")
     
     in_play = in_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
     out_play = out_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
