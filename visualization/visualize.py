@@ -16,8 +16,8 @@ import matplotlib.animation as animation
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
 
-
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
+
 
 class Visualize(): 
     def __init__(self, identifiers: DictConfig, extrema: DictConfig, fig: DictConfig, in_play: pl.DataFrame, out_play: pl.DataFrame, _img: np.ndarray, info: Optional[bool]=False):
@@ -79,8 +79,8 @@ class Visualize():
             color = "red"
         
         x_pos, y_pos = play["x", "y"]
-        norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max, mode="vanilla"), x_pos) # TODO: Move mode to config 
-        norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max, mode="vanilla"), y_pos)
+        norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max), x_pos)
+        norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max), y_pos)
         pos = list(zip(norm_x_pos, norm_y_pos))
         
         if frame_id <= n_input_frames: # input
@@ -128,11 +128,9 @@ class Visualize():
         # nx.draw(self.G, ax=self.ax, with_labels=False, node_color=self.player_dicts.values(), pos=node_positions)
         # ax.plot(self.x, self.y, "r--", lw=5)
 
-    def _normalize(self, x: float, min: float, max: float, mode:str) -> float:  
-        if mode == "vanilla": 
-            return (x-min)/(max-min) 
-        elif mode == "symmetric": 
-            return 2*(x-min)/(max-min)-1
+    def _normalize(self, x: float, min: float, max: float) -> float:  
+        return (x-min)/(max-min) 
+
 
     def _ang2vec(self, input: float) -> Tuple[float, float]: 
         return math.sin(input), math.cos(input)
