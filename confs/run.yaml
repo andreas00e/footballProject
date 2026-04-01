@@ -11,7 +11,7 @@ save_dir: /home/ehre/Documents/Projects/footballProject/logs
 data:
   dataset:  
     data_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/train_test # /train, /train_inv, /train_test (only one input, and one output file for faster testing)
-    scaling_path: ${project_dir}/confs/updated_min_max_values.yaml    
+    scaling_path: ${project_dir}/confs/values/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
     feature_config: ${data_features}
     data_type: graph # sequential 
@@ -62,13 +62,13 @@ data_features:
    - num_frames_output
    - ball_land_x 
    - ball_land_y
-    
+
+data_info: 
+  norm_length: ${len:${data_features.model.norm}}
+  no_norm_length: ${len:${data_features.model.no_norm}}
+  features: ${sub_2:${add_2:${data_info.norm_length},${data_info.no_norm_length}},1}    
+
 model: 
-  general: 
-    norm_length: ${len:${data_features.model.norm}}
-    no_norm_length: ${len:${data_features.model.no_norm}}
-    features: ${sub_2:${add_2:${model.general.norm_length},${model.general.no_norm_length}},1}
-  
   data: 
     max_players: 17
 
@@ -93,7 +93,7 @@ model:
 
   graph:
     encoder: 
-      in_channels: ${model.general.features} 
+      in_channels: ${data_info.features} 
       hidden_channels: 20 
       num_layers: 10
       out_channels: ${model.transformer.encoder_layer.d_model}
@@ -101,7 +101,7 @@ model:
       in_channels: ${model.transformer.encoder_layer.d_model} 
       hidden_channels: 20
       num_layers: 10
-      out_channels: ${model.general.features}
+      out_channels: ${data_info.features}
 
 logger: 
   name: NFLogger_graph
