@@ -1,14 +1,16 @@
 defaults:
   - values: updated_min_max_values
   - _self_
-fig: 
-  ratio: 1.7778
-  factor: 7.5 
-  x_size: ${mult_2:${fig.ratio}, ${fig.factor}}
-  y_size: ${fig.factor}
+
+pick_rand: False
+
+ids: #TODO: Include the option to randomly pick plays
+  week: 2 # [1, 18]
+  game_id: 2023091400 # look up in csv file(s)
+  play_id: 2523 # look up in csv file(s)
 
 data_dir: data/nfl-big-data-bowl-2026-prediction/train
-background_img: data/images/field.jpeg
+bg_img: data/images/field.jpeg
 
 features:
   - game_id
@@ -27,15 +29,27 @@ features:
   - dir
   - o
 
-extrema: 
-  x_min: ${values.x.min}
-  x_max: ${values.x.max}
-  y_min: ${values.y.min}
-  y_max: ${values.y.max}
+visualization: 
+  options: 
+    - color 
+    - shape 
+    - names 
+    - speed 
+    - orientation 
+    - position 
 
-pick_random: False
+  fig: 
+    ratio: 1.7778
+    factor: 7.5 
+    x_size: ${mult_2:${visualization.fig.ratio}, ${visualization.fig.factor}}
+    y_size: ${visualization.fig.factor}
 
-identifiers: #TODO: Include the option to randomly pick plays
-  week: 2 # [1, 18]
-  game_id: 2023091400 # look up in csv file(s)
-  play_id: 2523 # look up in csv file(s)
+  extrema: 
+    x_min: ${values.x.min}
+    x_max: ${values.x.max}
+    y_min: ${values.y.min}
+    y_max: ${values.y.max}
+  
+  info: False
+  
+  animation: False 
