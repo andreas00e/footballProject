@@ -23,17 +23,17 @@ logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
 class Visualize(): 
     def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ids: DictConfig, options: List, extrema: DictConfig, fig: DictConfig, info: bool, animation: bool) -> None:
         self.week_id, self.game_id, self.play_id = ids.values()
-        self.options = options 
-        self.x_min, self.x_max, self.y_min, self.y_max = extrema.values()
+        self.absolute_yardline_number, self.x, self.y, self.s, self.a, self.dir, self.o = extrema.values()
         _, _, self.x_size, self.y_size = fig.values()
+        self.options = options 
         self.animation = animation
         
-        self.in_play = i_play
-        self.out_play = o_play
+        self.i_play = self._normalize(i_play)
+        self.o_play = self._normalize(o_play)
         self._img = bg_img
         self.info = info
 
-        self.n_players, self.n_out_players, self.in_frames, self.out_frames = [0]*4
+        self.n_players, self.n_out_players, self.i_frames, self.o_frames = [0]*4
         self.out_players, self.x, self.y = [], [], []
         self.last_node_positions, self.trace_lines = {}, {}
         self.shapes = defaultdict(dict)
@@ -46,7 +46,7 @@ class Visualize():
          
     def _process_play(self) -> Dict[str, Tuple[bool, str, str]]:
         # TODO: Include line for play data that was predicted by the model        
-        directions, bools, names, positions, sides = self.in_play.filter(pl.col("frame_id") == 1)["play_direction", "player_to_predict", "player_name", "player_position", "player_side"]
+        directions, bools, names, positions, sides = self.i_play.filter(pl.col("frame_id") == 1)["play_direction", "player_to_predict", "player_name", "player_position", "player_side"]
         names = [name.split()[1] for name in names]
         colors = ["red" if side == "Offense" else "blue" for side in sides] # XXX: Change color of nodes to reflect teams actual colors
         shapes = ["o" if side == "Offense" else ">" if direction == "left" else "<" for side, direction in zip(sides, directions)]
@@ -68,16 +68,15 @@ class Visualize():
         if frame_id: 
            self.ax.clear() 
         
-        in_frames = self.in_frames
+        in_frames = self.i_frames
         if frame_id <= in_frames: # input part of the sequence  
-            play = self.in_play.filter(pl.col("frame_id") == frame_id)
-            if self.orientation: 
-                orientations = play["dir"] 
-                orientations = list(map(self._ang2vec, orientations))
-                node_orientations = dict(zip(self.players, orientations))
+            play = self.i_play.filter(pl.col("frame_id") == frame_id)
+            # if self.orientation: 
+            #     orientations = play["dir"] 
+            #     orientations = list(map(self._ang2vec, orientations))
+            #     node_orientations = dict(zip(self.players, orientations))
         else: # output part of the sequence 
-            play = self.out_play.filter(pl.col("frame_id") == frame_id-in_frames)
-        
+            play = self.o_play.filter(pl.col("frame_id") == frame_id-in_frames)
         
         x_pos, y_pos = play["x", "y"]
         norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max), x_pos)
@@ -141,23 +140,25 @@ class Visualize():
         # nx.draw_networkx_labels(G=self.G, pos=node_positions, labels=self.players.keys(), ax=self.ax, font_size=10, font_color="black")
         # ax.plot(self.x, self.y, "r--", lw=5)
 
-    def _normalize(self, x: float, min: float, max: float) -> float:  
-        return (x-min)/(max-min) 
+    # def _normalize(self, x: float, min: float, max: float) -> float:  
+    #     return (x-min)/(max-min) 
+    def _normalize(self, df: pl.DataFrame) -> pl.DataFrame: 
+        return df 
 
     def _ang2vec(self, input: float) -> Tuple[float, float]: 
         return math.sin(input), math.cos(input)
         
     def plot(self) -> None: 
         self.trace_lines = {n: self.ax.plot([], [], "r--")[0] for n in self.G.nodes} 
-        traces_in = {node: [] for node in self.G.nodes}
-        traces_out = {node: [] for node in self.G.nodes}
+        i_traces = {node: [] for node in self.G.nodes}
+        o_traces = {node: [] for node in self.G.nodes}
         
-        self.in_frames = self.in_play["frame_id"].n_unique()
-        self.out_frames = self.out_play["frame_id"].n_unique()
-        n_frames = self.in_frames+self.out_frames
+        self.i_frames = self.i_play["frame_id"].n_unique()
+        self.o_frames = self.o_play["frame_id"].n_unique()
+        n_frames = self.i_frames+self.o_frames
          
         plt.axis("equal")
-        self.anim = animation.FuncAnimation(self.fig, partial(self._update, traces_in, traces_out), frames=range(1, n_frames+1), repeat=False, blit=False)
+        self.anim = animation.FuncAnimation(self.fig, partial(self._update, i_traces, o_traces), frames=range(1, n_frames+1), repeat=False, blit=False)
         self.anim.save(
             filename="./visualization/play.mp4", 
             writer="ffmpeg", 
@@ -181,6 +182,7 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
         
     i_df, o_df = get_files(data_dir=data_dir, week=week, features=features)
     
+    
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
         play_id = random.choice(i_df.filter(pl.col("game_id") == game_id)["play_id"].unique()) 
@@ -194,6 +196,9 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
 
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
 def main(cfg) -> None:  
+    OmegaConf.resolve(cfg)
+    print(cfg.visualization)
+    exit()
     bg_img = mpimg.imread(cfg.bg_img)
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     
@@ -204,8 +209,8 @@ def main(cfg) -> None:
         
     i_play, o_play = get_frames(data_dir=data_dir, features=cfg.features, ids=ids)
 
-    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ids=ids, **cfg.visualization)
-    visualize.plot()
+    # visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ids=ids, **cfg.visualization)
+    # visualize.plot()
     
 if __name__ == "__main__": 
     main()
