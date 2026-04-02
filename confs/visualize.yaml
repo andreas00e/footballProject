@@ -2,54 +2,49 @@ defaults:
   - values: updated_min_max_values
   - _self_
 
-pick_rand: False
-
-ids: #TODO: Include the option to randomly pick plays
-  week: 2 # [1, 18]
-  game_id: 2023091400 # look up in csv file(s)
-  play_id: 2523 # look up in csv file(s)
+_: ${values}
 
 data_dir: data/nfl-big-data-bowl-2026-prediction/train
 bg_img: data/images/field.jpeg
 
-features:
-  - game_id
-  - play_id
-  - player_to_predict
-  - nfl_id
-  - frame_id
-  - play_direction
-  - player_name
-  - player_position
-  - player_side
-  - x
-  - y
-  - s
-  - a
-  - dir
-  - o
+pick_rand: False
+
+ids: # ids for the games and the play can be found in the csv files 
+  week: 2 # [1, 18]
+  game_id: 2023091400
+  play_id: 2523
 
 visualization: 
-  options: 
-    - color 
-    - shape 
-    - names 
-    - speed 
-    - orientation 
-    - position 
+  features:
+    - game_id
+    - play_id
+    - player_to_predict
+    - nfl_id
+    - frame_id
+    - play_direction
+    - player_name
+    - player_position
+    - player_side
+    - x
+    - y
+    - s
+    - a
+    - dir
+    - o
 
   fig: 
-    ratio: 1.7778
-    factor: 7.5 
-    x_size: ${mult_2:${visualization.fig.ratio}, ${visualization.fig.factor}}
-    y_size: ${visualization.fig.factor}
-
-  extrema: 
-    x_min: ${values.x.min}
-    x_max: ${values.x.max}
-    y_min: ${values.y.min}
-    y_max: ${values.y.max}
-  
-  info: False
-  
-  animation: False 
+    parameters: 
+      ratio: 1.7778
+      factor: 7.5 
+    values: 
+      x_size: ${mult_2:${visualization.fig.parameters.factor},${visualization.fig.parameters.ratio}}
+      y_size: ${visualization.fig.parameters.factor}
+    extrema:
+      absolute_yardline_number: ${values.absolute_yardline_number}
+      player_position: ${values.player_position}
+      x: ${values.x}
+      y: ${values.y}
+      s: ${values.s}
+      a: ${values.a}
+      dir: ${values.dir}
+      o: ${values.o}
