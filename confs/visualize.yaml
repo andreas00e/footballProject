@@ -14,17 +14,18 @@ ids: # ids for the games and the play can be found in the csv files
   game_id: 2023091400
   play_id: 2523
 
-visualization: 
-  features:
+features: 
+  load: 
     - game_id
     - play_id
-    - player_to_predict
-    - nfl_id
     - frame_id
+    - nfl_id 
+    - player_to_predict
     - play_direction
     - player_name
     - player_position
     - player_side
+  norm: 
     - x
     - y
     - s
@@ -32,19 +33,32 @@ visualization:
     - dir
     - o
 
+visualization: 
+  options: 
+    - traces
+    - shapes
+
   fig: 
     parameters: 
       ratio: 1.7778
       factor: 7.5 
-    values: 
+    sizes: 
       x_size: ${mult_2:${visualization.fig.parameters.factor},${visualization.fig.parameters.ratio}}
       y_size: ${visualization.fig.parameters.factor}
-    extrema:
-      absolute_yardline_number: ${values.absolute_yardline_number}
-      player_position: ${values.player_position}
-      x: ${values.x}
-      y: ${values.y}
-      s: ${values.s}
-      a: ${values.a}
-      dir: ${values.dir}
-      o: ${values.o}
+
+  extrema:
+    x: ${values.x}
+    y: ${values.y}
+    s: ${values.s}
+    a: ${values.a}
+    dir: ${values.dir}
+    o: ${values.o}
+
+  animation:
+    filename: ./visualization/play.mp4
+    writer: ffmpeg
+    fps: 0.25 
+    dpi: 200.0
+    # extra_args:
+    #  - pix_fmt
+    #  - yuv420p

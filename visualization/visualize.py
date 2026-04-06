@@ -8,7 +8,7 @@ import polars as pl
 from functools import partial
 from collections import defaultdict
 from omegaconf import DictConfig, OmegaConf
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -21,17 +21,22 @@ logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
 
 
 class Visualize(): 
-    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ids: DictConfig, options: List, extrema: DictConfig, fig: DictConfig, info: bool, animation: bool) -> None:
-        self.week_id, self.game_id, self.play_id = ids.values()
-        self.absolute_yardline_number, self.x, self.y, self.s, self.a, self.dir, self.o = extrema.values()
-        _, _, self.x_size, self.y_size = fig.values()
-        self.options = options 
-        self.animation = animation
+    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ids: DictConfig, features_load: DictConfig, 
+                features_norm: DictConfig, options: List, fig: DictConfig, extrema: DictConfig, animation: DictConfig) -> None:
+        self.i_play = i_play
+        self.o_play = o_play
         
-        self.i_play = self._normalize(i_play)
-        self.o_play = self._normalize(o_play)
-        self._img = bg_img
-        self.info = info
+        self.bg_img = bg_img
+        self.week_id, self.game_id, self.play_id = ids.values()
+        
+        self.features_load = features_load
+        self.features_norm = features_norm
+        
+        self.options = options 
+        self.x_size, self.y_size = list(fig.sizes.values())
+        self.extrema = extrema
+                
+        self.animation = animation
 
         self.n_players, self.n_out_players, self.i_frames, self.o_frames = [0]*4
         self.out_players, self.x, self.y = [], [], []
@@ -42,15 +47,18 @@ class Visualize():
         self.G = self._create_graph(self.players)
         
         self.fig, self.ax = plt.subplots(figsize=(self.x_size, self.y_size))
-        self.text, self.anim = None, None # later text, later animation
+        self.text, self.anim = [None]*2 # later text and animation
          
     def _process_play(self) -> Dict[str, Tuple[bool, str, str]]:
-        # TODO: Include line for play data that was predicted by the model        
-        directions, bools, names, positions, sides = self.i_play.filter(pl.col("frame_id") == 1)["play_direction", "player_to_predict", "player_name", "player_position", "player_side"]
+        self.i_play[list(self.features_norm)] = self._normalize(self.i_play[list(self.features_norm)], self.extrema)
+        self.o_play[["x", "y"]] = self._normalize(self.o_play[["x", "y"]], self.extrema)
+        
+        i_play = self.i_play.filter(pl.col("frame_id") == 1)
+        predictions, directions, names, positions, sides = i_play["player_to_predict", "play_direction", "player_name", "player_position", "player_side"]
         names = [name.split()[1] for name in names]
-        colors = ["red" if side == "Offense" else "blue" for side in sides] # XXX: Change color of nodes to reflect teams actual colors
+        sides = ["red" if side == "Offense" else "blue" for side in sides]
         shapes = ["o" if side == "Offense" else ">" if direction == "left" else "<" for side, direction in zip(sides, directions)]
-        players = dict(zip(names, zip(shapes, bools, positions, colors)))
+        players = dict(zip(names, zip(predictions, shapes, positions, sides)))
 
         self.n_players = len(players)
         self.out_players = [k for k, v in players.items() if v[0]]
@@ -79,9 +87,7 @@ class Visualize():
             play = self.o_play.filter(pl.col("frame_id") == frame_id-in_frames)
         
         x_pos, y_pos = play["x", "y"]
-        norm_x_pos = map(lambda x: self._normalize(x, self.x_min, self.x_max), x_pos)
-        norm_y_pos = map(lambda y: self._normalize(y, self.y_min, self.y_max), y_pos)
-        pos = list(zip(norm_x_pos, norm_y_pos))
+        pos = list(zip(x_pos, y_pos))
         
         if frame_id <= in_frames: # input
             node_positions = dict(zip(self.players.keys(), pos)) # all players
@@ -119,7 +125,7 @@ class Visualize():
         # self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color=color)
 
         
-        self.ax.imshow(self._img, extent=[-1, 1, -1, 1], aspect="auto")
+        self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
         # ax.plot(x_pos, y_pos, "r--")
         # nx.set_node_attributes(self.G, node_positions, name="pos")
         # x, y = list(node_positions.values())[0]
@@ -127,23 +133,28 @@ class Visualize():
         # self.y.append(y)
         
         nx.draw_networkx_edges(G=self.G, pos=node_positions, ax=self.ax, edge_color="black")
-        shapes = list(set(value[0] for value in self.players.values()))
-        
-        for k, v in self.players.items(): 
-            self.groups[v[0]][k] = v
-        
-        for k_1, v_1 in self.groups.items(): 
-            for k_2, v_2 in v_1.items(): 
-                pos = node_positions
+        nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[v[-1] for v in self.players.values()], ax=self.ax)
 
-            nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[c for _, _, c in self.players.values()], ax=self.ax)
+        # nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[c for _, _, c in self.players.values()], ax=self.ax)
+
+        # shapes = list(set(value[0] for value in self.players.values()))
+        
+        # for k, v in self.players.items(): 
+        #     self.groups[v[0]][k] = v
+        
+        # for k_1, v_1 in self.groups.items(): 
+        #     for k_2, v_2 in v_1.items(): 
+        #         pos = node_positions
+
+        #     nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[c for _, _, c in self.players.values()], ax=self.ax)
         # nx.draw_networkx_labels(G=self.G, pos=node_positions, labels=self.players.keys(), ax=self.ax, font_size=10, font_color="black")
         # ax.plot(self.x, self.y, "r--", lw=5)
 
-    # def _normalize(self, x: float, min: float, max: float) -> float:  
-    #     return (x-min)/(max-min) 
-    def _normalize(self, df: pl.DataFrame) -> pl.DataFrame: 
-        return df 
+    def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
+        return df.with_columns([
+            (2*((pl.col(col) - extrema[col]["min"]) / (extrema[col]["max"] - extrema[col]["min"]))-1).alias(col)
+            for col in df.columns
+        ])
 
     def _ang2vec(self, input: float) -> Tuple[float, float]: 
         return math.sin(input), math.cos(input)
@@ -159,13 +170,8 @@ class Visualize():
          
         plt.axis("equal")
         self.anim = animation.FuncAnimation(self.fig, partial(self._update, i_traces, o_traces), frames=range(1, n_frames+1), repeat=False, blit=False)
-        self.anim.save(
-            filename="./visualization/play.mp4", 
-            writer="ffmpeg", 
-            fps=n_frames*0.25, 
-            dpi=200.0, 
-            extra_args=["-pix_fmt", "yuv420p"]
-            ) 
+        self.animation.fps *= n_frames
+        self.anim.save(**self.animation)
    
 def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
     i_file = os.path.join(data_dir, "input_2023_w{:02d}.csv".format(week))
@@ -182,7 +188,6 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
         
     i_df, o_df = get_files(data_dir=data_dir, week=week, features=features)
     
-    
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
         play_id = random.choice(i_df.filter(pl.col("game_id") == game_id)["play_id"].unique()) 
@@ -195,22 +200,23 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
 
 
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
-def main(cfg) -> None:  
-    OmegaConf.resolve(cfg)
-    print(cfg.visualization)
-    exit()
+def main(cfg) -> None:
+    OmegaConf.resolve(cfg)  
+    
     bg_img = mpimg.imread(cfg.bg_img)
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
+    features = cfg.features.load+cfg.features.norm
     
     if cfg.pick_rand: 
         ids = None 
     else: 
         ids=cfg.ids
         
-    i_play, o_play = get_frames(data_dir=data_dir, features=cfg.features, ids=ids)
+    i_play, o_play = get_frames(data_dir=data_dir, features=features, ids=ids)
 
-    # visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ids=ids, **cfg.visualization)
-    # visualize.plot()
+    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ids=ids,
+                    features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)
+    visualize.plot()
     
 if __name__ == "__main__": 
     main()
