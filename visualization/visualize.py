@@ -6,7 +6,6 @@ import logging
 import numpy as np 
 import polars as pl 
 from functools import partial
-from collections import defaultdict
 from omegaconf import DictConfig, OmegaConf
 from typing import Dict, List, Tuple, Union
 
@@ -75,7 +74,7 @@ class Visualize():
         G = nx.Graph()
         G.add_nodes_from(self.play.keys())
         nx.set_node_attributes(G, values={}, name="pos")
-        nx.set_node_attributes(G, values=self.id2name, name="name")
+        nx.set_node_attributes(G, values=[v[1] for v in self.id2info.values()], name="name")
         return G 
     
     def _update(self, traces_in, traces_out, frame_id) -> None:
@@ -83,42 +82,13 @@ class Visualize():
            self.ax.clear() 
            
         node_positions = {}
+        node_color = []
         for k in self.play.keys(): 
-            node_positions[k] = self.play[k][frame_id].row(0)
+            node_positions[k] = self.play[k][frame_id].row(0)[:2]
+            node_color.append(self.play[k][frame_id].row(0)[-1])
         
-        nx.draw_networkx_nodes(G=self.G, pos=node_positions, ax=self.ax, node_color=self.id2color.values())
-        
-
-        # in_frames = self.i_frames
-        # if frame_id <= in_frames: # input part of the sequence  
-        #     play = self.i_play.filter(pl.col("frame_id") == frame_id)
-        #     # if self.orientation: 
-        #     #     orientations = play["dir"] 
-        #     #     orientations = list(map(self._ang2vec, orientations))
-        #     #     node_orientations = dict(zip(self.players, orientations))
-        # else: # output part of the sequence 
-        #     play = self.o_play.filter(pl.col("frame_id") == frame_id-in_frames)
-        
-        # x_pos, y_pos = play["x", "y"]
-        # pos = list(zip(x_pos, y_pos))
-        
-        # if frame_id <= in_frames: # input
-        #     node_positions = dict(zip(self.players.keys(), pos)) # all players
-        #     if frame_id == in_frames: 
-        #         self.last_node_positions = node_positions # saving the final positions of all players (only appearing in the input sequence)
-        #         # self.last_x_pos = x_pos
-        #         # self.last_y_pos = y_pos
-        # elif frame_id > in_frames: # output
-        #     node_positions = dict(zip(self.out_players, pos)) # only out players
-        #     for player in self.players.keys(): 
-        #         if player in self.out_players: 
-        #             self.last_node_positions[player] = node_positions[player]
-        #         else: 
-        #             self.players[player] = *self.players[player][:2], "grey"
-        #     node_positions = self.last_node_positions
-            
-
-        
+        nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=node_color, ax=self.ax)
+    
         # # for node, attrs in self.G.nodes(data=True):  # draw direction vectors as arrows
         # #     x, y = attrs.get("pos")
         # #     traces_in[node].append((x, y)) # list of past input positions
@@ -135,32 +105,8 @@ class Visualize():
         # self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
         # self.text = self.ax.text(0.9, 1.0, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
         # # self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color=color)
-
         
         self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
-        # # ax.plot(x_pos, y_pos, "r--")
-        # # nx.set_node_attributes(self.G, node_positions, name="pos")
-        # # x, y = list(node_positions.values())[0]
-        # #self.x.append(x)
-        # # self.y.append(y)
-        
-        # nx.draw_networkx_edges(G=self.G, pos=node_positions, ax=self.ax, edge_color="black")
-        # nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[v[-1] for v in self.players.values()], ax=self.ax)
-
-        # # nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[c for _, _, c in self.players.values()], ax=self.ax)
-
-        # # shapes = list(set(value[0] for value in self.players.values()))
-        
-        # # for k, v in self.players.items(): 
-        # #     self.groups[v[0]][k] = v
-        
-        # # for k_1, v_1 in self.groups.items(): 
-        # #     for k_2, v_2 in v_1.items(): 
-        # #         pos = node_positions
-
-        # #     nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=[c for _, _, c in self.players.values()], ax=self.ax)
-        # # nx.draw_networkx_labels(G=self.G, pos=node_positions, labels=self.players.keys(), ax=self.ax, font_size=10, font_color="black")
-        # # ax.plot(self.x, self.y, "r--", lw=5)
 
     def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
         return df.with_columns([
