@@ -5,7 +5,6 @@ import random
 import logging 
 import numpy as np 
 import polars as pl 
-from functools import partial
 from omegaconf import DictConfig, OmegaConf
 from typing import Dict, List, Tuple, Union
 
@@ -20,12 +19,13 @@ logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
 
 
 class Visualize(): 
-    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ids: DictConfig, features_load: DictConfig, 
-                features_norm: DictConfig, options: List, fig: DictConfig, extrema: DictConfig, animation: DictConfig) -> None:
+    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ball_img: np.ndarray, ids: DictConfig, 
+            features_load: DictConfig, features_norm: DictConfig, options: List, fig: DictConfig, extrema: DictConfig, animation: DictConfig) -> None:
         self.i_play = i_play
         self.o_play = o_play
         
         self.bg_img = bg_img
+        self.ball_img = ball_img
         self.week_id, self.game_id, self.play_id = ids.values()
         
         self.features_load = features_load
@@ -77,34 +77,23 @@ class Visualize():
         nx.set_node_attributes(G, values=[v[1] for v in self.id2info.values()], name="name")
         return G 
     
-    def _update(self, traces_in, traces_out, frame_id) -> None:
+    def _update(self, frame_id) -> None:
         if frame_id: 
            self.ax.clear() 
            
         node_positions = {}
         node_color = []
         for k in self.play.keys(): 
-            node_positions[k] = self.play[k][frame_id].row(0)[:2]
-            node_color.append(self.play[k][frame_id].row(0)[-1])
-        
+            x, y, c = self.play[k][:frame_id+1]
+            node_positions[k] = (x[-1], y[-1])
+            node_color.append(c[-1])
+            self.ax.plot(x, y, f"{c[-1][0]}--") # plot trace for player movements before ball is thrown 
+
         nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=node_color, ax=self.ax)
-    
-        # # for node, attrs in self.G.nodes(data=True):  # draw direction vectors as arrows
-        # #     x, y = attrs.get("pos")
-        # #     traces_in[node].append((x, y)) # list of past input positions
-        # #     x_trace_in = [pos[0] for pos in traces_in[node]]
-        # #     y_trace_in = [pos[1] for pos in traces_in[node]]
-        # #     ax.plot(x_trace_in, y_trace_in, "r--") # plot trace for player movements before ball is thrown 
-            
-        # #     if frame > len(n_input_frames): 
-        # #         traces_out[node].append((x, y)) # list of past input positions
-        # #         x_trace_out = [pos[0] for pos in traces_out[node]]
-        # #         y_trace_out = [pos[1] for pos in traces_out[node]]
-        # #         ax.plot(x_trace_out, y_trace_out, "b--") # plot trace for player movements when ball is in the air
         
-        # self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
-        # self.text = self.ax.text(0.9, 1.0, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
-        # # self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color=color)
+        self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
+        self.text = self.ax.text(0.9, 1.0, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
+        self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
         
         self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
 
@@ -127,7 +116,7 @@ class Visualize():
         n_frames = self.i_frames+self.o_frames
          
         plt.axis("equal")
-        self.anim = animation.FuncAnimation(self.fig, partial(self._update, i_traces, o_traces), frames=range(0, n_frames), repeat=False, blit=False)
+        self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, n_frames), repeat=False, blit=False)
         self.animation.fps *= n_frames
         self.anim.save(**self.animation)
    
@@ -162,6 +151,7 @@ def main(cfg) -> None:
     OmegaConf.resolve(cfg)  
     
     bg_img = mpimg.imread(cfg.bg_img)
+    ball_img = mpimg.imread(cfg.ball_img)
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     features = cfg.features.load+cfg.features.norm
     
@@ -172,7 +162,7 @@ def main(cfg) -> None:
         
     i_play, o_play = get_frames(data_dir=data_dir, features=features, ids=ids)
 
-    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ids=ids,
+    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ball_img=ball_img, ids=ids,
                     features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)
     visualize.plot()
     
