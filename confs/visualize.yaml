@@ -33,6 +33,8 @@ features:
     - a
     - dir
     - o
+    - ball_land_x 
+    - ball_land_y
 
 visualization: 
   options: 
@@ -54,6 +56,8 @@ visualization:
     a: ${values.a}
     dir: ${values.dir}
     o: ${values.o}
+    ball_land_x: ${values.x}
+    ball_land_y: ${values.y}
 
   animation:
     filename: ./visualization/play.mp4

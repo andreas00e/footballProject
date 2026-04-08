@@ -1,4 +1,5 @@
 import os 
+import cv2
 import math  
 import hydra
 import random
@@ -14,7 +15,6 @@ import matplotlib.image as mpimg
 import matplotlib.animation as animation
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
-
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
 
 
@@ -25,7 +25,7 @@ class Visualize():
         self.o_play = o_play
         
         self.bg_img = bg_img
-        self.ball_img = ball_img
+        self.ball_img = ball_img 
         self.week_id, self.game_id, self.play_id = ids.values()
         
         self.features_load = features_load
@@ -36,7 +36,7 @@ class Visualize():
         self.extrema = extrema
                 
         self.animation = animation
-            
+        
         self.i_frames, self.o_frames = [0]*2
         self.id2info, self.play = {}, {}
         
@@ -53,11 +53,13 @@ class Visualize():
         self.i_frames = int(self.i_play["frame_id"].n_unique())
         self.o_frames = int(self.o_play["frame_id"].n_unique())
         
-        predictions, ids, _, names, _, sides = \
-            self.i_play.filter(pl.col("frame_id") == 1)[["player_to_predict", "nfl_id", "play_direction", "player_name", "player_position", "player_side"]]
+        predictions, ids, _, names, positions, sides, ball_land_x, ball_land_y = \
+            self.i_play.filter(pl.col("frame_id") == 1)[["player_to_predict", "nfl_id", "play_direction", "player_name", "player_position", "player_side", "ball_land_x", "ball_land_y"]]
         
         names = names.map_elements(lambda x: x.split()[-1], return_dtype=pl.String)
         colors = sides.map_elements(lambda x: "red" if x == "Offense" else "blue")
+        ball_land = pl.DataFrame(data={"x": ball_land_x[0], "y": ball_land_y[0]})
+            
         self.id2info = dict(zip(ids, zip(predictions, names, colors)))
                 
         for id in ids: 
@@ -69,7 +71,17 @@ class Visualize():
                 pad_element = pl.concat([self.i_play.filter(pl.col("nfl_id") == id)[["x", "y"]][-1]]*self.o_frames)
                 self.play[id] = pl.concat([self.i_play.filter(pl.col("nfl_id") == id)[["x", "y"]], pad_element])
                 self.play[id].insert_column(self.play[id].width, pl.Series("color", [self.id2info[id][-1] if i < self.i_frames else "grey" for i in range(self.i_frames+self.o_frames)]))
-
+                
+        if "QB" in positions: 
+            qb_id = ids[positions.index_of("QB")]
+            ground = self.i_play.filter(pl.col("nfl_id") == qb_id)[["x", "y"]]
+            p1 = np.asarray(ground[-1].row(0))
+            p2 = np.asarray(ball_land.row(0))
+            air = [p1+(((p2-p1)/self.o_frames)*i) for i in range(1, self.o_frames+1)]
+            air = pl.DataFrame(air, schema=["x", "y"], orient="row")
+            self.play["ball"] = pl.concat([ground, air])
+            self.play["ball"].insert_column(self.play["ball"].width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
+        
     def _create_graph(self) -> nx.Graph: 
         G = nx.Graph()
         G.add_nodes_from(self.play.keys())
@@ -96,6 +108,7 @@ class Visualize():
         self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
         
         self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
+        # self.ax.imshow(self.ball_img, extent=[-0.01, 0.01, -0.01, 0.01], aspect="auto")
 
     def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
         return df.with_columns([
@@ -107,17 +120,9 @@ class Visualize():
         return math.sin(input), math.cos(input)
         
     def plot(self) -> None: 
-        self.trace_lines = {n: self.ax.plot([], [], "r--")[0] for n in self.G.nodes} 
-        i_traces = {node: [] for node in self.G.nodes}
-        o_traces = {node: [] for node in self.G.nodes}
-        
-        self.i_frames = self.i_play["frame_id"].n_unique()
-        self.o_frames = self.o_play["frame_id"].n_unique()
-        n_frames = self.i_frames+self.o_frames
-         
         plt.axis("equal")
-        self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, n_frames), repeat=False, blit=False)
-        self.animation.fps *= n_frames
+        self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, self.i_frames+self.o_frames), repeat=False, blit=False)
+        self.animation.fps *= (self.i_frames+self.o_frames)
         self.anim.save(**self.animation)
    
 def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
