@@ -60,7 +60,7 @@ visualization:
     ball_land_y: ${values.y}
 
   animation:
-    filename: ./visualization/play.mp4
+    filename: ~/Documents/play.mp4
     writer: ffmpeg
     fps: 0.25 
     dpi: 200.0

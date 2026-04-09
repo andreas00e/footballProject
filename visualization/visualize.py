@@ -13,19 +13,20 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
 
 
 class Visualize(): 
-    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: np.ndarray, ball_img: np.ndarray, ids: DictConfig, 
+    def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: os.PathLike, ball_img: os.PathLike, ids: DictConfig, 
             features_load: DictConfig, features_norm: DictConfig, options: List, fig: DictConfig, extrema: DictConfig, animation: DictConfig) -> None:
         self.i_play = i_play
         self.o_play = o_play
         
-        self.bg_img = bg_img
-        self.ball_img = ball_img 
+        self.bg_img = mpimg.imread(bg_img)
+        self.ball_img = mpimg.imread(ball_img)
         self.week_id, self.game_id, self.play_id = ids.values()
         
         self.features_load = features_load
@@ -37,6 +38,7 @@ class Visualize():
                 
         self.animation = animation
         
+        self.ball = None 
         self.i_frames, self.o_frames = [0]*2
         self.id2info, self.play = {}, {}
         
@@ -79,8 +81,8 @@ class Visualize():
             p2 = np.asarray(ball_land.row(0))
             air = [p1+(((p2-p1)/self.o_frames)*i) for i in range(1, self.o_frames+1)]
             air = pl.DataFrame(air, schema=["x", "y"], orient="row")
-            self.play["ball"] = pl.concat([ground, air])
-            self.play["ball"].insert_column(self.play["ball"].width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
+            self.ball = pl.concat([ground, air])
+            self.ball.insert_column(self.ball.width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
         
     def _create_graph(self) -> nx.Graph: 
         G = nx.Graph()
@@ -99,16 +101,22 @@ class Visualize():
             x, y, c = self.play[k][:frame_id+1]
             node_positions[k] = (x[-1], y[-1])
             node_color.append(c[-1])
-            self.ax.plot(x, y, f"{c[-1][0]}--") # plot trace for player movements before ball is thrown 
+            self.ax.plot(x, y, color=f"{c[-1]}", linestyle="--")
+        
 
         nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=node_color, ax=self.ax)
+        ib = OffsetImage(self.ball_img, zoom=0.1)
+        ab = AnnotationBbox(ib, self.ball[frame_id][["x", "y"]].row(0), frameon=False)
+        self.ax.add_artist(ab)
+        
+        x, y, c = self.ball[:frame_id+1]
+        self.ax.plot(x, y, color=f"{c[-1]}", linestyle="--")
         
         self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
-        self.text = self.ax.text(0.9, 1.0, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
-        self.text = self.ax.text(0.97, 1.0, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
+        self.text = self.ax.text(0.9, 1.01, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
+        self.text = self.ax.text(0.97, 1.01, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
         
         self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
-        # self.ax.imshow(self.ball_img, extent=[-0.01, 0.01, -0.01, 0.01], aspect="auto")
 
     def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
         return df.with_columns([
@@ -122,6 +130,7 @@ class Visualize():
     def plot(self) -> None: 
         plt.axis("equal")
         self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, self.i_frames+self.o_frames), repeat=False, blit=False)
+        self.animation.filename = os.path.expanduser(self.animation.filename)
         self.animation.fps *= (self.i_frames+self.o_frames)
         self.anim.save(**self.animation)
    
@@ -139,13 +148,11 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
         week = random.randint(a=1, b=18)
         
     i_df, o_df = get_files(data_dir=data_dir, week=week, features=features)
-    
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
         play_id = random.choice(i_df.filter(pl.col("game_id") == game_id)["play_id"].unique()) 
     
     print(f"Visualizing play {play_id} from game {game_id} from week {week}")
-    
     i_play = i_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
     o_play = o_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
     return i_play, o_play
@@ -155,11 +162,8 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
 def main(cfg) -> None:
     OmegaConf.resolve(cfg)  
     
-    bg_img = mpimg.imread(cfg.bg_img)
-    ball_img = mpimg.imread(cfg.ball_img)
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     features = cfg.features.load+cfg.features.norm
-    
     if cfg.pick_rand: 
         ids = None 
     else: 
@@ -167,8 +171,8 @@ def main(cfg) -> None:
         
     i_play, o_play = get_frames(data_dir=data_dir, features=features, ids=ids)
 
-    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=bg_img, ball_img=ball_img, ids=ids,
-                    features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)
+    visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=cfg.bg_img, ball_img=cfg.ball_img, ids=ids, 
+        features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)
     visualize.plot()
     
 if __name__ == "__main__": 
