@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl 
 from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
-from typing import Dict, List, Tuple, Union
+from typing import Dict, Generator, List, Tuple, Union
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -89,8 +89,6 @@ class Visualize():
             self.ball.insert_column(self.ball.width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
             
             air_angle = np.arccos(p[0]/np.linalg.norm(p))/(2*np.pi)*360.0
-            if directions[0] == "left" and self.ball_angle < 90.0: # backward passes are not allowed
-                air_angle += 180.0
             air_angle = [float(air_angle)]*self.o_frames
             self.ball_angle = ground_angle+air_angle
 
@@ -128,6 +126,7 @@ class Visualize():
         self.text = self.ax.text(0.97, 1.01, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
         
         self.ax.imshow(self.bg_img, extent=[-1, 1, -1, 1], aspect="auto")
+
 
     def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
         return df.with_columns([
