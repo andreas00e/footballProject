@@ -1,11 +1,11 @@
 import os 
-import cv2
 import math  
 import hydra
 import random
 import logging 
 import numpy as np 
 import polars as pl 
+from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
 from typing import Dict, List, Tuple, Union
 
@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from scipy.ndimage import rotate
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
@@ -39,7 +40,7 @@ class Visualize():
         self.animation = animation
         
         self.ball = None 
-        self.i_frames, self.o_frames = [0]*2
+        self.i_frames, self.o_frames, self.ball_angle = [0]*3
         self.id2info, self.play = {}, {}
         
         self._process_play()
@@ -55,7 +56,7 @@ class Visualize():
         self.i_frames = int(self.i_play["frame_id"].n_unique())
         self.o_frames = int(self.o_play["frame_id"].n_unique())
         
-        predictions, ids, _, names, positions, sides, ball_land_x, ball_land_y = \
+        predictions, ids, directions, names, positions, sides, ball_land_x, ball_land_y = \
             self.i_play.filter(pl.col("frame_id") == 1)[["player_to_predict", "nfl_id", "play_direction", "player_name", "player_position", "player_side", "ball_land_x", "ball_land_y"]]
         
         names = names.map_elements(lambda x: x.split()[-1], return_dtype=pl.String)
@@ -76,14 +77,23 @@ class Visualize():
                 
         if "QB" in positions: 
             qb_id = ids[positions.index_of("QB")]
-            ground = self.i_play.filter(pl.col("nfl_id") == qb_id)[["x", "y"]]
-            p1 = np.asarray(ground[-1].row(0))
+            qb_rows = self.i_play.filter(pl.col("nfl_id") == qb_id)
+            ground_pos = qb_rows[["x", "y"]]
+            ground_angle = list(qb_rows["o"]*360.0)
+            p1 = np.asarray(ground_pos[-1].row(0))
             p2 = np.asarray(ball_land.row(0))
-            air = [p1+(((p2-p1)/self.o_frames)*i) for i in range(1, self.o_frames+1)]
-            air = pl.DataFrame(air, schema=["x", "y"], orient="row")
-            self.ball = pl.concat([ground, air])
+            p = p2-p1
+            air_pos = [p1+(((p)/self.o_frames)*i) for i in range(1, self.o_frames+1)]
+            air_pos = pl.DataFrame(air_pos, schema=["x", "y"], orient="row")
+            self.ball = pl.concat([ground_pos, air_pos])
             self.ball.insert_column(self.ball.width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
-        
+            
+            air_angle = np.arccos(p[0]/np.linalg.norm(p))/(2*np.pi)*360.0
+            if directions[0] == "left" and self.ball_angle < 90.0: # backward passes are not allowed
+                air_angle += 180.0
+            air_angle = [float(air_angle)]*self.o_frames
+            self.ball_angle = ground_angle+air_angle
+
     def _create_graph(self) -> nx.Graph: 
         G = nx.Graph()
         G.add_nodes_from(self.play.keys())
@@ -102,10 +112,11 @@ class Visualize():
             node_positions[k] = (x[-1], y[-1])
             node_color.append(c[-1])
             self.ax.plot(x, y, color=f"{c[-1]}", linestyle="--")
-        
-
+    
         nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=node_color, ax=self.ax)
-        ib = OffsetImage(self.ball_img, zoom=0.1)
+        
+        r_ball_img = np.clip(rotate(self.ball_img, angle=self.ball_angle[frame_id]), a_min=0, a_max=1)
+        ib = OffsetImage(r_ball_img, zoom=0.1)
         ab = AnnotationBbox(ib, self.ball[frame_id][["x", "y"]].row(0), frameon=False)
         self.ax.add_artist(ab)
         
@@ -121,6 +132,8 @@ class Visualize():
     def _normalize(self, df: pl.DataFrame, extrema: DictConfig) -> pl.DataFrame:
         return df.with_columns([
             (2*((pl.col(col) - extrema[col]["min"]) / (extrema[col]["max"] - extrema[col]["min"]))-1).alias(col)
+            if ("x" in col or "y" in col) # [-1, 1] for player and ball positions 
+            else ((pl.col(col) - extrema[col]["min"]) / (extrema[col]["max"] - extrema[col]["min"])).alias(col) # [0, 1] for everything else
             for col in df.columns
         ])
 
@@ -129,25 +142,24 @@ class Visualize():
         
     def plot(self) -> None: 
         plt.axis("equal")
-        self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, self.i_frames+self.o_frames), repeat=False, blit=False)
+        self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(self.i_frames+self.o_frames), repeat=False, blit=False)
         self.animation.filename = os.path.expanduser(self.animation.filename)
-        # self.animation.fps *= (self.i_frames+self.o_frames)
         self.anim.save(**self.animation)
    
-def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
+def get_frames(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
     i_file = os.path.join(data_dir, "input_2023_w{:02d}.csv".format(week))
     i_df = pl.read_csv(i_file, columns=features)
     o_file = os.path.join(data_dir, "output_2023_w{:02d}.csv".format(week))
     o_df = pl.read_csv(o_file)    
     return i_df, o_df 
 
-def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
+def get_plays(data_dir: os.PathLike, features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
     if ids:
         week, game_id, play_id = ids
     else:  
         week = random.randint(a=1, b=18)
         
-    i_df, o_df = get_files(data_dir=data_dir, week=week, features=features)
+    i_df, o_df = get_frames(data_dir=data_dir, week=week, features=features)
     
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
@@ -170,7 +182,7 @@ def main(cfg) -> None:
     else: 
         ids = cfg.ids.values()
         
-    i_play, o_play, ids = get_frames(data_dir=data_dir, features=features, ids=ids)
+    i_play, o_play, ids = get_plays(data_dir=data_dir, features=features, ids=ids)
 
     visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=cfg.bg_img, ball_img=cfg.ball_img, ids=ids, 
         features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)

@@ -8,7 +8,7 @@ data_dir: data/nfl-big-data-bowl-2026-prediction/train
 bg_img: data/images/field.jpeg
 ball_img: data/images/football.png
 
-pick_rand: False 
+pick_rand: True 
 
 ids: # ids for the games and the play can be found in the csv files 
   week: 17 # [1, 18]
@@ -60,8 +60,8 @@ visualization:
     ball_land_y: ${values.y}
 
   animation:
-    filename: ~/Documents/${ids.week}_${ids.game_id}_{ids.play_id}.mp4 # ./visualization/${ids.week}_${ids.game_id}_{ids.play_id}.mp4
-    # filename: ./visualization/play.mp4
+    # filename: ~/Documents/${ids.week}_${ids.game_id}_{ids.play_id}.mp4 # ./visualization/${ids.week}_${ids.game_id}_{ids.play_id}.mp4
+    filename: ./visualization/play.mp4
     writer: ffmpeg
     fps: 16
     dpi: 200.0
