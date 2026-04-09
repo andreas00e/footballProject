@@ -27,7 +27,7 @@ class Visualize():
         
         self.bg_img = mpimg.imread(bg_img)
         self.ball_img = mpimg.imread(ball_img)
-        self.week_id, self.game_id, self.play_id = ids.values()
+        self.week_id, self.game_id, self.play_id = ids
         
         self.features_load = features_load
         self.features_norm = features_norm
@@ -131,7 +131,7 @@ class Visualize():
         plt.axis("equal")
         self.anim = animation.FuncAnimation(self.fig, self._update, frames=range(0, self.i_frames+self.o_frames), repeat=False, blit=False)
         self.animation.filename = os.path.expanduser(self.animation.filename)
-        self.animation.fps *= (self.i_frames+self.o_frames)
+        # self.animation.fps *= (self.i_frames+self.o_frames)
         self.anim.save(**self.animation)
    
 def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]]) -> Tuple[pl.DataFrame, pl.DataFrame]:  
@@ -143,11 +143,12 @@ def get_files(data_dir: os.PathLike, week: int, features: List[Union[int, str]])
 
 def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
     if ids:
-        week, game_id, play_id = ids.values()
+        week, game_id, play_id = ids
     else:  
         week = random.randint(a=1, b=18)
         
     i_df, o_df = get_files(data_dir=data_dir, week=week, features=features)
+    
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
         play_id = random.choice(i_df.filter(pl.col("game_id") == game_id)["play_id"].unique()) 
@@ -155,21 +156,21 @@ def get_frames(data_dir: os.PathLike, features: List[Union[int, str]], ids: Unio
     print(f"Visualizing play {play_id} from game {game_id} from week {week}")
     i_play = i_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
     o_play = o_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
-    return i_play, o_play
+    return i_play, o_play, (week, game_id, play_id)
 
 
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
 def main(cfg) -> None:
     OmegaConf.resolve(cfg)  
-    
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     features = cfg.features.load+cfg.features.norm
+
     if cfg.pick_rand: 
-        ids = None 
+        ids = None
     else: 
-        ids=cfg.ids
+        ids = cfg.ids.values()
         
-    i_play, o_play = get_frames(data_dir=data_dir, features=features, ids=ids)
+    i_play, o_play, ids = get_frames(data_dir=data_dir, features=features, ids=ids)
 
     visualize = Visualize(i_play=i_play, o_play=o_play, bg_img=cfg.bg_img, ball_img=cfg.ball_img, ids=ids, 
         features_load=cfg.features.load, features_norm=cfg.features.norm, **cfg.visualization)
