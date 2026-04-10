@@ -8,12 +8,12 @@ data_dir: data/nfl-big-data-bowl-2026-prediction/train
 bg_img: data/images/field.jpeg
 ball_img: data/images/football.png
 
-pick_rand: True 
+pick_rand: False 
 
 ids: # ids for the games and the play can be found in the csv files 
-  week: 17 # [1, 18]
-  game_id: 2023123104
-  play_id: 80
+  week: 1 # [1, 18]
+  game_id: 2023090700
+  play_id: 1422
 
 features: 
   load: 

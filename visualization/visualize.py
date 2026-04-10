@@ -5,11 +5,11 @@ import random
 import logging 
 import numpy as np 
 import polars as pl 
-from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
-from typing import Dict, Generator, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import networkx as nx
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
@@ -18,6 +18,8 @@ from scipy.ndimage import rotate
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
+
+# matplotlib.use('TkAgg')
 
 
 class Visualize(): 
@@ -46,7 +48,7 @@ class Visualize():
         self._process_play()
         self.G = self._create_graph()
         
-        self.fig, self.ax = plt.subplots(figsize=(self.x_size, self.y_size))
+        self.fig, self.ax = plt.subplots(figsize=(self.x_size, self.y_size))        
         self.text, self.anim = [None]*2 # later text and animation
              
     def _process_play(self) -> None:
@@ -88,7 +90,7 @@ class Visualize():
             self.ball = pl.concat([ground_pos, air_pos])
             self.ball.insert_column(self.ball.width, pl.Series("color", ["brown" for _ in range(self.i_frames+self.o_frames)]))
             
-            air_angle = np.arccos(p[0]/np.linalg.norm(p))/(2*np.pi)*360.0
+            air_angle = np.arccos(p[1]/np.linalg.norm(p))/(2*np.pi)*360
             air_angle = [float(air_angle)]*self.o_frames
             self.ball_angle = ground_angle+air_angle
 
@@ -113,7 +115,7 @@ class Visualize():
     
         nx.draw_networkx_nodes(G=self.G, pos=node_positions, node_color=node_color, ax=self.ax)
         
-        r_ball_img = np.clip(rotate(self.ball_img, angle=self.ball_angle[frame_id]), a_min=0, a_max=1)
+        r_ball_img = np.clip(rotate(self.ball_img, angle=self.ball_angle[frame_id], axes=(0, 1)), a_min=0, a_max=1)
         ib = OffsetImage(r_ball_img, zoom=0.1)
         ab = AnnotationBbox(ib, self.ball[frame_id][["x", "y"]].row(0), frameon=False)
         self.ax.add_artist(ab)
