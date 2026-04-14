@@ -11,9 +11,9 @@ ball_img: data/images/football.png
 pick_rand: False 
 
 ids: # ids for the games and the play can be found in the csv files 
-  week: 1 # [1, 18]
-  game_id: 2023090700
-  play_id: 1422
+  week: 13 # [1, 18]
+  game_id: 2023120310
+  play_id: 3542
 
 features: 
   load: 
@@ -26,13 +26,14 @@ features:
     - player_name
     - player_position
     - player_side
+    - o
   norm: 
     - x
     - y
     - s
     - a
     - dir
-    - o
+    # - o
     - ball_land_x 
     - ball_land_y
 
@@ -55,7 +56,7 @@ visualization:
     s: ${values.s}
     a: ${values.a}
     dir: ${values.dir}
-    o: ${values.o}
+    # o: ${values.o}
     ball_land_x: ${values.x}
     ball_land_y: ${values.y}
 
