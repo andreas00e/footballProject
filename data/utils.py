@@ -46,11 +46,9 @@ def collate_fn_graph(batch): # TODO: Move (some of) this to dataloading
 
         else: # mode=predict
             edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index), dim=-1) # mode=predict
-            target_indices = [i for i in range(n_players_target)] # <sep> token after the input sequence and <bos>
-
+            target_indices = [0]*n_players_target # <sep> token after the input sequence and <bos>
         
         seq = Data(x=x[:, :-1], edge_index=edge_index) # number of predicted output frames is currently not passed to model in any way
-        
         source_indices = [i for i in range(n_frames_source+1) for _ in range(n_players_source)] # indices for input sequence including the <bos> token 
     
     seq_indices = source_indices + [i+max(source_indices)+1 for i in target_indices] 
@@ -63,7 +61,6 @@ def collate_fn_graph(batch): # TODO: Move (some of) this to dataloading
         "n_frames_target": n_frames_target, 
         "n_players_source": n_players_source, 
         "n_players_target": n_players_target, 
-
         }
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 

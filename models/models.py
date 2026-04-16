@@ -78,16 +78,16 @@ class DecoderOnlyTransformer(pl.LightningModule):
     
     def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) \
             -> Tuple[TensorType["*"], TensorType["*"]]: 
-        bos_graph = self.bos_graph.expand(n_players_source, -1)
-        sep_graph = self.sep_graph.expand(n_players_target, -1)
-        eos_graph = self.eos_graph.expand(n_players_target, -1)
         
         if iter is None or iter == 1: 
+            bos_graph = self.bos_graph.expand(n_players_source, -1)
+            sep_graph = self.sep_graph.expand(n_players_target, -1)
             seq.x[:n_players_source, :] = bos_graph # bos token is appended to the start of the sequence 
-            seq.x[n_players_source*(n_frames_source+1):(n_players_source)*(n_frames_source+1)+n_players_target, :] = sep_graph # sep token is appended to the end of the input sequence 
+            seq.x[n_players_source*(n_frames_source+1):n_players_source*(n_frames_source+1)+n_players_target, :] = sep_graph # sep token is appended to the end of the input sequence 
 
         if iter is None: # only during training 
-            seq.x[-n_players_target:, :] = eos_graph # eos token is not added to the sequence during prediction 
+            eos_graph = self.eos_graph.expand(n_players_target, -1)
+            seq.x[-n_players_target:, :] = eos_graph  # <eos> token is not added to the sequence during prediction 
             
         seq_emb = self.GraphEncoder(seq.x, seq.edge_index, batch=seq_indices)
         seq_emb += self.pe._[:seq_emb.shape[0], :] 
@@ -112,23 +112,27 @@ class DecoderOnlyTransformer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx): 
         y, y_hat = self(**batch)                            
-        y, y_hat = self(**batch)
         loss = self._loss(y, y_hat, batch["n_frames_target"], batch["n_players_target"], "test")
         return loss 
     
     def predict_step(self, batch, batch_idx): # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 
-        _, _, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
+        seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
+        stop = n_frames_target
         
-        for i in range(n_frames_target): 
-            if i == 0: 
-                y, y_hat = self(**batch, iter=i+1)
-            else: 
-                pass 
+        for i in range(1, stop+1): 
+            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, iter=i)
             
-        print(f"<bos> token: {self.bos_graph}")   
-        print(f"<sep> token: {self.sep_graph}") 
-        print(f"<eos> token: {self.eos_graph}")     
-        
-        return y.x[:, :2], y_hat[:, :2]
+            y_hat_i = y_hat[:n_players_target] 
+            if torch.allclose(y_hat_i, self.eos_graph.expand(n_players_target, -1), rtol=0, atol=1e-5): 
+                return y.x[:, :2]
+            else:
+                seq.x = torch.vstack(tensors=(y.x, y_hat[:n_players_target]))
+                i_edge_index = seq.edge_index[:, -n_players_target*(n_players_target-1):]+n_players_target
+                seq.edge_index = torch.hstack(tensors=(seq.edge_index, i_edge_index))
+                seq_indices = torch.concat(tensors=(seq_indices, torch.max(seq_indices+1).repeat(n_players_target)), dim=0)
+                n_frames_source += 1 
+                n_frames_target -= 1 
+                
+        return y.x[:, :2]

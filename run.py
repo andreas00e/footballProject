@@ -51,14 +51,9 @@ def main(cfg: DictConfig):
         model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path=cfg.prediction.checkpoint_path, weights_only=False)
         trainer = L.Trainer(**cfg.trainer)
         
-        out = trainer.predict(model=model, dataloaders=single_loader)
+        _ = trainer.predict(model=model, dataloaders=single_loader)
         
-        for idx, (y, y_hat) in enumerate(out): 
-            print(f"Input at step {idx}: \n {y}")
-            print(f"Shape of input ate step {idx}: {y.shape}")
-            print("---------------------------------------------")
-            print(f"Output at step {idx}: \n {y_hat}")
-            print(f"Shape of output at step {idx}: {y_hat.shape}")
+        print("Success!")
 
 if __name__ == "__main__": 
     main() 
