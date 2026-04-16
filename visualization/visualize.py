@@ -11,7 +11,6 @@ from typing import Dict, List, Tuple, Union
 
 import cv2
 import networkx as nx
-# import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
@@ -20,9 +19,6 @@ from scipy.ndimage import rotate
 
 OmegaConf.register_new_resolver("mult_2", lambda x, y: x * y)
 logging.getLogger("matplotlib.animation").setLevel(logging.WARNING)
-
-# matplotlib.use('TkAgg')
-
 
 class Visualize(): 
     def __init__(self,  i_play: pl.DataFrame, o_play: pl.DataFrame, bg_img: os.PathLike, ball_img: os.PathLike, ids: DictConfig, 
@@ -84,6 +80,7 @@ class Visualize():
             qb_rows = self.i_play.filter(pl.col("nfl_id") == qb_id)
             ground_pos = qb_rows[["x", "y"]]
             ground_angle = list(360-qb_rows["o"])
+            
             p1 = np.asarray(ground_pos[-1].row(0))
             p2 = np.asarray(ball_land.row(0))
             p = p2-p1
@@ -109,7 +106,6 @@ class Visualize():
         return G 
     
     def _update(self, frame_id) -> None:
-        # print(self.ball_angle[frame_id])
         if frame_id: 
            self.ax.clear() 
            

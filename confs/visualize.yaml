@@ -56,13 +56,12 @@ visualization:
     s: ${values.s}
     a: ${values.a}
     dir: ${values.dir}
-    # o: ${values.o}
     ball_land_x: ${values.x}
     ball_land_y: ${values.y}
 
   animation:
-    # filename: ~/Documents/${ids.week}_${ids.game_id}_{ids.play_id}.mp4 # ./visualization/${ids.week}_${ids.game_id}_{ids.play_id}.mp4
-    filename: ./visualization/play.mp4
+    filename: ~/Documents/${ids.week}_${ids.game_id}_{ids.play_id}.mp4 # ./visualization/${ids.week}_${ids.game_id}_{ids.play_id}.mp4
+    # filename: ./visualization/play.mp4
     writer: ffmpeg
     fps: 16
     dpi: 200.0
