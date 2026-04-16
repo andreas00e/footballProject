@@ -5,3 +5,4 @@ outputs
 sim
 */__pycache__
 *.mp4
+date2week.py

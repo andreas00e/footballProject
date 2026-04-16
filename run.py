@@ -1,4 +1,5 @@
 import hydra
+import random
 from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("len", lambda x: len(x))
 OmegaConf.register_new_resolver("add_2", lambda x, y: x + y)
@@ -42,12 +43,15 @@ def main(cfg: DictConfig):
     
     if cfg.mode == "predict": 
         cfg.data.dataset.data_dir = cfg.prediction.test_dir
-        dataset = PlayDataset(**cfg.data.dataset)
-        dataloader = DataLoader(dataset=dataset, num_workers=cfg.data.dataloading.num_workers, collate_fn=collate_fn_graph)
+        dataset = PlayDataset(**cfg.data.dataset)        
+        
+        idx = random.randint(0, len(dataset))
+        single_loader = DataLoader([dataset[idx]], batch_size=1, num_workers=15, collate_fn=collate_fn_graph)
+        
         model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path=cfg.prediction.checkpoint_path, weights_only=False)
         trainer = L.Trainer(**cfg.trainer)
         
-        out = trainer.predict(model=model, dataloaders=dataloader)
+        out = trainer.predict(model=model, dataloaders=single_loader)
         
         for idx, (y, y_hat) in enumerate(out): 
             print(f"Input at step {idx}: \n {y}")

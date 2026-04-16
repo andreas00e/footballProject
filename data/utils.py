@@ -14,10 +14,7 @@ class padding:
     max_tgt_players: int = 17   
     # max_tgt_players: int = 9
 
-def collate_fn_graph(batch): # TODO: Move this to dataloading
-    source_indices, target_indices = [], []
-    source_index, target_index = 0, 0
-    
+def collate_fn_graph(batch): # TODO: Move (some of) this to dataloading    
     for b in batch: # XXX: Currently this only works for batch_size=1
         source, target, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features = b.values() 
     
@@ -29,32 +26,34 @@ def collate_fn_graph(batch): # TODO: Move this to dataloading
         else: # mode=predict
             x = torch.concat(tensors=(placeholder_token_source, source.x, placeholder_token_target), dim=0) # feature vector for inference 
         
-        bos_edge_index = torch.nonzero((~torch.eye(n_players_source, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the bos token 
-        eos_edge_index = torch.nonzero((~torch.eye(n_players_target, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the sep, and eos token 
+        bos_edge_index = torch.nonzero((~torch.eye(n_players_source, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the <bos> token 
+        eos_edge_index = torch.nonzero((~torch.eye(n_players_target, dtype=torch.bool)).to(torch.int64)).T # adjacency vector for the nodes constituting the <sep>, and <eos> token 
         
         source_edge_index = source.edge_index + n_players_source 
         
         if n_players_target > 1: 
             sep_edge_index = (eos_edge_index + torch.max(source_edge_index) + 1) 
         elif n_players_target == 1: 
-            sep_edge_index = torch.empty((2, 0), dtype=torch.int64) # sep token consists of one node, and consequently no edges
+            sep_edge_index = torch.empty((2, 0), dtype=torch.int64) # <sep> token consists of one node, and consequently no edges
         else: 
             raise ValueError("The number of output players has to be positive and bigger than zero!")
             
         if target: # mode=train
-            if sep_edge_index.numel() != 0 and eos_edge_index.numel() != 0: # if the sep token is empty, so is the eos token 
+            if sep_edge_index.numel() != 0 and eos_edge_index.numel() != 0: # if the <sep> token is empty, so is the <eos> token 
                 eos_edge_index += torch.max(sep_edge_index)     
             edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index, target.edge_index, eos_edge_index), dim=-1) # mode=train
-            target_indices += [target_index+j for j in range(1, n_frames_target+3) for _ in range(n_players_target)] # include sep, and eos token
+            target_indices = [i for i in range(n_frames_target+2) for _ in range(n_players_target)] # include <sep>, and <eos> token
 
         else: # mode=predict
             edge_index = torch.concat(tensors=(bos_edge_index, source.edge_index, sep_edge_index), dim=-1) # mode=predict
+            target_indices = [i for i in range(n_players_target)] # <sep> token after the input sequence and <bos>
+
         
         seq = Data(x=x[:, :-1], edge_index=edge_index) # number of predicted output frames is currently not passed to model in any way
         
-        source_indices += [source_index+j for j in range(n_frames_source+1) for _ in range(n_players_source)] # include bos token
-            
-    seq_indices = source_indices + [t+max(source_indices) for t in target_indices] if target else source_indices
+        source_indices = [i for i in range(n_frames_source+1) for _ in range(n_players_source)] # indices for input sequence including the <bos> token 
+    
+    seq_indices = source_indices + [i+max(source_indices)+1 for i in target_indices] 
     seq_indices = torch.tensor(seq_indices, dtype=torch.int64)
     
     return {

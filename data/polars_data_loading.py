@@ -46,7 +46,7 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
          
 class PlayDataset(Dataset):     
     def __init__(self, data_dir: os.PathLike, scaling_path: os.PathLike, pos_path: os.PathLike, feature_config: dict, data_type: str, mode: str):
-        self.mode = mode
+        self.mode = mode # train, predict
         self.data_dir = data_dir
         if os.path.isdir(data_dir): 
             self.files = [file for file in os.listdir(self.data_dir) if file.endswith(".csv")]
@@ -57,7 +57,6 @@ class PlayDataset(Dataset):
         self.pos_embedds: Dict[str, float] = self._load_pos_embedds(pos_path) 
         self.feature_config = feature_config
         self.data_type = data_type
-        self.plays_abc = []
         
         if self.data_type == "graph":
             self.edge_index_cache: Dict[int, TensorType["2, num_edges"]] = {}
@@ -238,5 +237,9 @@ class PlayDataset(Dataset):
                 "n_players_target": n_players_target, 
                 "n_features": n_features_source,  
             }
+            
+        if self.mode == "predict": 
+            print(f"game_id: {game}")
+            print(f"play_id: {play}")
             
         return data

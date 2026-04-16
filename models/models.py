@@ -56,13 +56,10 @@ class DecoderOnlyTransformer(pl.LightningModule):
         d = z.shape[-1]
         # we are only interested in the target part of the transformer output
         z = z[-t:, :].unsqueeze(1) # [t, 1, d] 
-
         # expansion of parameter matrices 
         W_Q = self.W_Q.repeat(t, 1, 1) # [t, d, 1]
         W_K = self.W_K.repeat(t, 1, 1) # [t, d, 1]
-        
         W_V = self.W_V[:, :p, :].repeat(t, 1, 1) # [t, p, 1], p: number of output players 
-        
         # matrix-vector multiplications (I do know that it is not actually a matrix, but a tensor...)
         Q = torch.bmm(W_Q, z) # [t, d, 1] @ [t, 1, d] -> [t, d, d]
         K = torch.bmm(W_K, z) # [t, d, 1] @ [t, 1, d] -> [t, d, d]
@@ -73,7 +70,6 @@ class DecoderOnlyTransformer(pl.LightningModule):
     
     def _tensor2data(self, z: TensorType["n_frames_target+2", "d_model", "n_players_target"]) -> Data:
         t, d, p = z.shape
-        
         x = z.permute(0, 2, 1).reshape(-1, d)  # [t, d, p] -> [t*p, d]
         _edge = torch.nonzero((~torch.eye(p, dtype=torch.bool)).to(torch.int64).to(self.device)).T
         edge_index = torch.concat(tensors=[_edge+i for i in range(t)], dim=-1)

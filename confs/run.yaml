@@ -1,4 +1,4 @@
-mode: train # can also be set through the comamnd line with "mode=train" or "mode=predict"
+mode: predict # can also be set through the comamnd line with "mode=train" or "mode=predict"
 
 seed_everything:
   seed: 42
@@ -106,7 +106,7 @@ model:
 logger: 
   name: NFLogger_graph
   save_dir: ${save_dir}/logger
-  version: test_sdfspskd
+  version: test_04_15_01
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger
