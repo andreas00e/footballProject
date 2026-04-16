@@ -54,6 +54,7 @@ def main(cfg: DictConfig):
         _ = trainer.predict(model=model, dataloaders=single_loader)
         
         print("Success!")
+        print("Updated!")
 
 if __name__ == "__main__": 
     main() 
