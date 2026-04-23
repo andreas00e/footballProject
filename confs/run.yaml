@@ -124,7 +124,7 @@ profiler:
 trainer:  
   max_epochs: 100
   log_every_n_steps: 5
-  limit_predict_batches: 1
+  limit_predict_batches: 1.0
 
 prediction: 
   test_dir: ${project_dir}/data/nfl-big-data-bowl-2026-prediction/test_input.csv

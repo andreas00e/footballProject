@@ -11,7 +11,7 @@ from torch_geometric.data import Data
 
 from models.utils import TransformerDecoder, GraphModule, PositionalEncoding, RMSELoss
 
-        
+
 class DecoderOnlyTransformer(pl.LightningModule):
     def __init__(self, data: Dict, optimizer: Dict, lr_scheduler: Dict, transformer: Dict, graph: Dict):
         super().__init__()
@@ -120,19 +120,20 @@ class DecoderOnlyTransformer(pl.LightningModule):
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
         stop = n_frames_target
-        
+        out_size = (n_frames_target+1)*n_players_target
+
         for i in range(1, stop+1): 
-            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, iter=i)
+            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, iter=i)            
+            y_hat_i = y_hat[:n_players_target, :] 
+            seq.x = torch.vstack(tensors=(y.x, y_hat[:n_players_target]))
             
-            y_hat_i = y_hat[:n_players_target] 
-            if torch.allclose(y_hat_i, self.eos_graph.expand(n_players_target, -1), rtol=0, atol=1e-5): 
-                return y.x[:, :2]
+            if torch.allclose(y_hat_i, self.eos_graph.expand(n_players_target, -1), rtol=0, atol=1e-5): # prediction is equal to <eos> token
+                return seq.x[-i*n_players_target:, :2]
             else:
-                seq.x = torch.vstack(tensors=(y.x, y_hat[:n_players_target]))
                 i_edge_index = seq.edge_index[:, -n_players_target*(n_players_target-1):]+n_players_target
                 seq.edge_index = torch.hstack(tensors=(seq.edge_index, i_edge_index))
                 seq_indices = torch.concat(tensors=(seq_indices, torch.max(seq_indices+1).repeat(n_players_target)), dim=0)
                 n_frames_source += 1 
                 n_frames_target -= 1 
                 
-        return y.x[:, :2]
+        return seq.x[-out_size:, :2]

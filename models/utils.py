@@ -17,7 +17,7 @@ class TransformerDecoder(nn.Module):
     def __init__(self, transformer: Dict) -> None:
         super().__init__() 
         self.encoder_layer = nn.TransformerEncoderLayer(**transformer.encoder_layer)
-        self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers)
+        self.TransformerDecoder = nn.TransformerEncoder(self.encoder_layer, num_layers=transformer.decoder.num_layers, enable_nested_tensor=False)
         # self.fc = nn.Sequential(*list2sequential(transformer.regression_head))
         # self.norm = nn.Sigmoid()
     
