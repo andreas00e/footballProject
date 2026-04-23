@@ -51,8 +51,7 @@ def main(cfg: DictConfig):
         model = DecoderOnlyTransformer.load_from_checkpoint(checkpoint_path=cfg.prediction.checkpoint_path, weights_only=False)
         trainer = L.Trainer(**cfg.trainer)
         
-        out = trainer.predict(model=model, dataloaders=single_loader)
-        print(f"Shape of output: {out[0].shape}")
+        trainer.predict(model=model, dataloaders=single_loader)
         print("Success!")
 
 if __name__ == "__main__": 

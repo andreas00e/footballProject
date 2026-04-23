@@ -16,8 +16,8 @@ class padding:
 
 def collate_fn_graph(batch): # TODO: Move (some of) this to dataloading    
     for b in batch: # XXX: Currently this only works for batch_size=1
-        source, target, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features, nfl_ids = b.values()
-        nfl_ids = torch.tensor(nfl_ids)
+        source, target, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features, out_ids = b.values()
+        out_ids = torch.tensor(out_ids)
 
         placeholder_token_source = torch.zeros(size=(n_players_source, n_features), dtype=torch.float32) 
         placeholder_token_target = torch.zeros(size=(n_players_target, n_features), dtype=torch.float32) 
@@ -62,7 +62,7 @@ def collate_fn_graph(batch): # TODO: Move (some of) this to dataloading
         "n_frames_target": n_frames_target, 
         "n_players_source": n_players_source, 
         "n_players_target": n_players_target, 
-        "nfl_ids": nfl_ids
+        "out_ids": out_ids
         }
 
 def collate_fn(batch) -> Dict[str, TensorType['*']]: 

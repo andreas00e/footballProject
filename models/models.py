@@ -1,4 +1,7 @@
-import math 
+import math
+import csv
+import numpy as np 
+import polars as pls
 from typing import Dict, Tuple, Union
 
 import torch 
@@ -76,7 +79,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         data = Data(x=x, edge_index=edge_index)
         return data 
     
-    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, nfl_ids: TensorType["*"], iter: Union[None, int] = None) \
+    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, out_ids: TensorType["*"], iter: Union[None, int] = None) \
             -> Tuple[TensorType["*"], TensorType["*"]]: 
         
         if iter is None or iter == 1: 
@@ -115,25 +118,32 @@ class DecoderOnlyTransformer(pl.LightningModule):
         loss = self._loss(y, y_hat, batch["n_frames_target"], batch["n_players_target"], "test")
         return loss 
     
-    def predict_step(self, batch, batch_idx): # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 
-        seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, nfl_ids = batch.values()
+    def predict_step(self, batch, batch_idx) -> None: # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 
+        seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, ids = batch.values()
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
-        stop = n_frames_target
-        out_size = (n_frames_target+1)*n_players_target
+        stop = n_frames_target        
+        ids = list(ids.detach().cpu().numpy())        
+        xy_out = {id: [] for id in ids}
 
         for i in range(1, stop+1): 
-            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, nfl_ids, iter=i)            
-            y_hat_i = y_hat[:n_players_target, :] 
+            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, ids, iter=i)            
             seq.x = torch.vstack(tensors=(y.x, y_hat[:n_players_target]))
             
-            if torch.allclose(y_hat_i, self.eos_graph.expand(n_players_target, -1), rtol=0, atol=1e-5): # prediction is equal to <eos> token
-                return seq.x[-i*n_players_target:, :2]
+            y_hat_i = y_hat[:n_players_target, :].detach().cpu().numpy() 
+            
+            for i, id in enumerate(ids):
+                xy_out[id].append((y_hat_i[i, :2]))
+            
+            if torch.allclose(y_hat[:n_players_target, :], self.eos_graph.expand(n_players_target, -1), rtol=0, atol=1e-5): # prediction is equal to <eos> token
+                break
             else:
                 i_edge_index = seq.edge_index[:, -n_players_target*(n_players_target-1):]+n_players_target
                 seq.edge_index = torch.hstack(tensors=(seq.edge_index, i_edge_index))
                 seq_indices = torch.concat(tensors=(seq_indices, torch.max(seq_indices+1).repeat(n_players_target)), dim=0)
                 n_frames_source += 1 
                 n_frames_target -= 1 
-                
-        return seq.x[-out_size:, :2]
+         
+        out = pls.DataFrame({str(k): np.stack(xy_out[k]) for k in xy_out.keys()}).unpivot()
+        out = out.with_columns(pls.col("value").arr.to_struct(fields=["x", "y"])).unnest("value").rename({"variable": "nfl_id"})
+        out.write_csv(file="out.csv")
