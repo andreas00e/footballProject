@@ -1,5 +1,5 @@
+import os 
 import math
-import csv
 import numpy as np 
 import polars as pls
 from typing import Dict, Tuple, Union
@@ -146,4 +146,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
          
         out = pls.DataFrame({str(k): np.stack(xy_out[k]) for k in xy_out.keys()}).unpivot()
         out = out.with_columns(pls.col("value").arr.to_struct(fields=["x", "y"])).unnest("value").rename({"variable": "nfl_id"})
-        out.write_csv(file="out.csv")
+        
+        file_name = os.path.join("./outputs/plays", os.listdir("./outputs/plays")[0])
+        with open(file=file_name, mode="w") as f: 
+            out.write_csv(file=f)

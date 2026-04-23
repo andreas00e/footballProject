@@ -1,4 +1,5 @@
 import os 
+import csv
 import math  
 import hydra
 import random
@@ -159,7 +160,7 @@ def get_frames(data_dir: os.PathLike, week: int, features: List[Union[int, str]]
     o_df = pl.read_csv(o_file)    
     return i_df, o_df 
 
-def get_plays(data_dir: os.PathLike, features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
+def get_plays(data_dir: Union[os.PathLike, csv.File], features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
     if ids:
         week, game_id, play_id = ids
     else:  
@@ -179,12 +180,14 @@ def get_plays(data_dir: os.PathLike, features: List[Union[int, str]], ids: Union
 
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
 def main(cfg) -> None:
-    OmegaConf.resolve(cfg)  
+    OmegaConf.resolve(cfg) 
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     features = cfg.features.load+cfg.features.norm
 
-    if cfg.pick_rand: 
+    if cfg.pick == "random": 
         ids = None
+    elif cfg.pick == "test": 
+        pass
     else: 
         ids = cfg.ids.values()
         

@@ -4,11 +4,13 @@ defaults:
 
 _: ${values}
 
-data_dir: data/nfl-big-data-bowl-2026-prediction/train
+# data_dir: data/nfl-big-data-bowl-2026-prediction/train # directory
+data_dir: data/nfl-big-data-bowl-2026-prediction/test_input.csv # csv-file
+
 bg_img: data/images/field.jpeg
 ball_img: data/images/football.png
 
-pick_rand: False 
+pick_rand: test 
 
 ids: # ids for the games and the play can be found in the csv files 
   week: 13 # [1, 18]

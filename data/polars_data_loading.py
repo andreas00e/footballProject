@@ -46,7 +46,7 @@ def geometric_output_features(groups: np.ndarray) -> np.ndarray:
          
 class PlayDataset(Dataset):     
     def __init__(self, data_dir: os.PathLike, scaling_path: os.PathLike, pos_path: os.PathLike, feature_config: dict, data_type: str, mode: str):
-        self.mode = mode # train, predict
+        self.mode = mode # "train", "predict"
         self.data_dir = data_dir
         if os.path.isdir(data_dir): 
             self.files = [file for file in os.listdir(self.data_dir) if file.endswith(".csv")]
@@ -241,7 +241,19 @@ class PlayDataset(Dataset):
             }
             
         if self.mode == "predict": 
+            
             print(f"game_id: {game}")
             print(f"play_id: {play}")
             
+            save_dir = "./outputs/plays/"
+            file_name = os.path.join(save_dir, f"{game}_{play}_out.csv")            
+            
+            files = os.listdir(save_dir)
+            if len(files) != 0: 
+                for file in files: 
+                    os.remove(os.path.join(save_dir, file))
+                    
+            with open(file=file_name, mode="w"): 
+                pass
+
         return data

@@ -24,7 +24,6 @@ from models.models import DecoderOnlyTransformer
 
 @hydra.main(config_path="./confs", config_name="run", version_base=None)
 def main(cfg: DictConfig): 
-
     if cfg.mode == "train": 
         L.seed_everything(**cfg.seed_everything)
         dataset = PlayDataset(**cfg.data.dataset)
