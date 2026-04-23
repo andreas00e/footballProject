@@ -76,7 +76,7 @@ class DecoderOnlyTransformer(pl.LightningModule):
         data = Data(x=x, edge_index=edge_index)
         return data 
     
-    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, iter: Union[None, int] = None) \
+    def forward(self, seq: Data, seq_indices: TensorType["*"], n_frames_source: int, n_frames_target: int, n_players_source: int, n_players_target: int, nfl_ids: TensorType["*"], iter: Union[None, int] = None) \
             -> Tuple[TensorType["*"], TensorType["*"]]: 
         
         if iter is None or iter == 1: 
@@ -116,14 +116,14 @@ class DecoderOnlyTransformer(pl.LightningModule):
         return loss 
     
     def predict_step(self, batch, batch_idx): # autoregressive prediction of the position of all target players for n_frames_targer, or when eos token is predicted 
-        seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target = batch.values()
+        seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, nfl_ids = batch.values()
         print(f"Given {n_players_source} input players for {n_frames_source} frames, \n \
               we are predicting the position of {n_players_target} players for {n_frames_target} frames.")
         stop = n_frames_target
         out_size = (n_frames_target+1)*n_players_target
 
         for i in range(1, stop+1): 
-            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, iter=i)            
+            y, y_hat = self(seq, seq_indices, n_frames_source, n_frames_target, n_players_source, n_players_target, nfl_ids, iter=i)            
             y_hat_i = y_hat[:n_players_target, :] 
             seq.x = torch.vstack(tensors=(y.x, y_hat[:n_players_target]))
             

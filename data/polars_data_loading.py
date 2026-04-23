@@ -3,7 +3,7 @@ import numpy as np
 import polars as pl
 from tqdm import tqdm 
 from omegaconf import OmegaConf
-from typing import Dict, List, Tuple, Union
+from typing import Dict, Iterable, List, Tuple, Union
 
 import torch 
 from torchtyping import TensorType
@@ -108,8 +108,9 @@ class PlayDataset(Dataset):
                             
             for name, frame in df.group_by(["game_id", "play_id"]): 
                 game, play = name 
+                nfl_ids = frame["nfl_id"].unique()
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
-                self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type)
+                self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type, nfl_ids=nfl_ids)
         
         self.item_list = list(self.df_cache.keys())
                             
@@ -127,8 +128,8 @@ class PlayDataset(Dataset):
             
         return self.edge_index_cache[n_players]             
         
-    def _build_data(self, df: pl.DataFrame, rows: int, file_type: str) -> Union[List[Data] | List[TensorType["*"]]]:
-        n_frames = df["frame_id"].n_unique()         
+    def _build_data(self, df: pl.DataFrame, rows: int, file_type: str, nfl_ids: Iterable[int]) -> Union[List[Data] | List[TensorType["*"]]]:
+        n_frames = df["frame_id"].n_unique() 
         n_players = int(rows / n_frames) 
         n_features = 0
         groups = df.sort("frame_id")
@@ -152,10 +153,10 @@ class PlayDataset(Dataset):
             n_features = int(x.shape[-1]) 
             
             if file_type == "input": 
-                return Data(edge_index=edge_index, x=x), n_frames, n_frames_out, n_players, n_players_out, n_features
+                return Data(edge_index=edge_index, x=x), n_frames, n_frames_out, n_players, n_players_out, n_features, nfl_ids
             elif file_type == "output": 
-                return Data(edge_index=edge_index, x=x)
-            
+                return Data(edge_index=edge_index, x=x), nfl_ids
+             
         elif self.data_type == "sequential": 
             raise NotImplementedError       
     
@@ -207,9 +208,9 @@ class PlayDataset(Dataset):
             out_file = file
          
         if self.data_type == "graph": 
-            source, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features_source = self.df_cache[(in_file, int(game), int(play))]
+            source, n_frames_source, n_frames_target, n_players_source, n_players_target, n_features_source, nfl_ids = self.df_cache[(in_file, int(game), int(play))]
             if "train" in self.mode:
-                target = self.df_cache[(out_file, int(game), int(play))] 
+                target, nfl_ids = self.df_cache[(out_file, int(game), int(play))] 
             elif "predict" in self.mode: 
                 target = None
         else: 
@@ -235,7 +236,8 @@ class PlayDataset(Dataset):
                 "n_frames_target": n_frames_target,
                 "n_players_source": n_players_source,
                 "n_players_target": n_players_target, 
-                "n_features": n_features_source,  
+                "n_features": n_features_source,
+                "nfl_ids": nfl_ids
             }
             
         if self.mode == "predict": 
