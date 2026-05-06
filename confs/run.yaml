@@ -1,4 +1,4 @@
-mode: predict # can also be set through the comamnd line with "mode=train" or "mode=predict"
+mode: train # can also be set through the comamnd line with "mode=train" or "mode=predict"
 
 seed_everything:
   seed: 42
@@ -14,7 +14,7 @@ data:
     scaling_path: ${project_dir}/confs/values/updated_min_max_values.yaml    
     pos_path: ${project_dir}/data/positions/positions.txt  
     feature_config: ${data_features}
-    data_type: graph # sequential 
+    data_type: graph # sequential # TODO: implement sequential 
     mode: ${mode}
 
   random_split: 
@@ -81,9 +81,9 @@ model:
 
   transformer: 
     encoder_layer: 
-      d_model: 16
-      nhead: 8
-      dim_feedforward: 32 
+      d_model: 8
+      nhead: 4
+      dim_feedforward: 16 
     decoder: 
       num_layers: 4
     positional_encoding: 
@@ -106,7 +106,7 @@ model:
 logger: 
   name: NFLogger_graph
   save_dir: ${save_dir}/logger
-  version: test_04_15_01
+  version: test_06_05_01
   project: GetRichOrDieTrying
   log_model: all 
   checkpoint_name: checkpoint_logger

@@ -107,8 +107,13 @@ class PlayDataset(Dataset):
             df = self._normalize(df=df, file_type=file_type)
                             
             for name, frame in df.group_by(["game_id", "play_id"]): 
+                out_ids = None 
                 game, play = name 
-                out_ids = frame.filter(pl.col("player_to_predict") == 1.0)["nfl_id"].unique()
+                if "player_to_predict" in frame.columns: # input file
+                    out_ids = frame.filter(pl.col("player_to_predict") == 1.0)["nfl_id"].unique()
+                else: 
+                    out_ids = frame["nfl_id"].unique()
+                    
                 frame = frame.drop(["game_id", "play_id", "nfl_id"])
                 self.df_cache[(file, game, play)] = self._build_data(df=frame, rows=frame.shape[0], file_type=file_type, out_ids=out_ids)
         

@@ -18,7 +18,7 @@ from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False # suppress SLURM warning
 
 from data.utils import collate_fn_graph
-from data.polars_data_loading import PlayDataset
+from data.data_loading import PlayDataset
 from models.models import DecoderOnlyTransformer
 
 
