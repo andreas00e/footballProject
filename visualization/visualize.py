@@ -29,7 +29,7 @@ class Visualize():
         
         self.bg_img = mpimg.imread(bg_img)
         self.ball_img = mpimg.imread(ball_img)
-        self.week_id, self.game_id, self.play_id = ids
+        self.game_id, self.play_id = ids
         
         self.features_load = features_load
         self.features_norm = features_norm
@@ -52,10 +52,12 @@ class Visualize():
              
     def _process_play(self) -> None:
         self.i_play[list(self.features_norm)] = self._normalize(self.i_play[list(self.features_norm)], self.extrema)
-        self.o_play[["x", "y"]] = self._normalize(self.o_play[["x", "y"]], self.extrema)
-        
+        # self.o_play[["x", "y"]] = self._normalize(self.o_play[["x", "y"]], self.extrema)_
         self.i_frames = int(self.i_play["frame_id"].n_unique())
-        self.o_frames = int(self.o_play["frame_id"].n_unique())
+        if "frame_id" in self.o_play.columns: 
+            self.o_frames = int(self.o_play["frame_id"].n_unique())
+        else: 
+            self.o_frames = int(self.o_play.shape[0]/self.o_play["nfl_id"].n_unique())
         
         predictions, ids, directions, names, positions, sides, ball_land_x, ball_land_y = \
             self.i_play.filter(pl.col("frame_id") == 1)[["player_to_predict", "nfl_id", "play_direction", "player_name", "player_position", "player_side", "ball_land_x", "ball_land_y"]]
@@ -129,7 +131,9 @@ class Visualize():
         x, y, c = self.ball[:frame_id+1]
         self.ax.plot(x, y, color=f"{c[-1]}", linestyle="--")
         
-        self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
+        # self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id} from week {self.week_id}")
+        self.ax.set_title(f"Animation for play {self.play_id} from game {self.game_id}")
+
         self.text = self.ax.text(0.9, 1.01, f"Frame:", transform=self.ax.transAxes, fontsize=12, color="black")
         self.text = self.ax.text(0.97, 1.01, f"{frame_id}", transform=self.ax.transAxes, fontsize=12, color="black")
         
@@ -160,22 +164,35 @@ def get_frames(data_dir: os.PathLike, week: int, features: List[Union[int, str]]
     o_df = pl.read_csv(o_file)    
     return i_df, o_df 
 
-def get_plays(data_dir: Union[os.PathLike, csv.File], features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
-    if ids:
-        week, game_id, play_id = ids
-    else:  
-        week = random.randint(a=1, b=18)
+def get_plays(data_dir: Union[os.PathLike, str], features: List[Union[int, str]], ids: Union[None, Dict]) -> Tuple[pl.Series, pl.Series]: 
+    if ids == "test": 
+        file_name = os.listdir("./outputs/plays")[0]
+        game_id = int(file_name.split("_")[0])
+        play_id = int(file_name.split("_")[1])
         
-    i_df, o_df = get_frames(data_dir=data_dir, week=week, features=features)
+        i_df = pl.read_csv(data_dir, columns=features)
+        # o_df = pl.read_csv(data_dir.replace("_input", ""))
+        o_file = os.path.join("outputs/plays", file_name)
+        o_play = pl.read_csv(o_file)
+        print(f"Visualizing play {play_id} from game {game_id} from week tests")
+
+    else:   
+        if ids == "random": 
+            week = random.randint(a=1, b=18)
+        else: 
+            week, game_id, play_id = ids
+        print(f"Visualizing play {play_id} from game {game_id} from week {week}")
+            
+        i_df, o_df = get_frames(data_dir=data_dir, week=week, features=features)
     
     if not ids: 
         game_id = random.choice(i_df["game_id"].unique())
         play_id = random.choice(i_df.filter(pl.col("game_id") == game_id)["play_id"].unique()) 
     
-    print(f"Visualizing play {play_id} from game {game_id} from week {week}")
     i_play = i_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
-    o_play = o_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
-    return i_play, o_play, (week, game_id, play_id)
+    if o_play.shape[-1] != 3: 
+        o_play = o_df.filter((pl.col("game_id") == game_id) & (pl.col("play_id") == play_id))
+    return i_play, o_play, (game_id, play_id)
 
 
 @hydra.main(config_path="../confs", config_name="visualize", version_base=None)
@@ -184,11 +201,9 @@ def main(cfg) -> None:
     data_dir = os.path.join(os.getcwd(), cfg.data_dir)
     features = cfg.features.load+cfg.features.norm
 
-    if cfg.pick == "random": 
-        ids = None
-    elif cfg.pick == "test": 
-        pass
-    else: 
+    if isinstance(cfg.pick, str): # from "train" or "test" files 
+        ids = cfg.pick  
+    elif cfg.pick: # random 
         ids = cfg.ids.values()
         
     i_play, o_play, ids = get_plays(data_dir=data_dir, features=features, ids=ids)
